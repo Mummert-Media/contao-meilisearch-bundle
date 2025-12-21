@@ -11,5 +11,8 @@
     "psr-4": {
       "MummertMedia\\ContaoMeilisearchBundle\\": "src/"
     }
+  },
+  "extra": {
+    "contao-manager-plugin": "MummertMedia\\ContaoMeilisearchBundle\\ContaoManager\\Plugin"
   }
 }
