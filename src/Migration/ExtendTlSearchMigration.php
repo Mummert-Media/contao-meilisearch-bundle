@@ -19,24 +19,18 @@ class ExtendTlSearchMigration implements MigrationInterface
 
     public function shouldRun(): bool
     {
-        $schemaManager = $this->connection->createSchemaManager();
-        $columns = $schemaManager->listTableColumns('tl_search');
-
-        return
-            !isset($columns['keywords']) ||
-            !isset($columns['priority']) ||
-            !isset($columns['imagepath']) ||
-            !isset($columns['startdate']);
+        // Wir lassen MySQL entscheiden – kein Schema-Precheck
+        return true;
     }
 
     public function run(): MigrationResult
     {
         $this->connection->executeStatement(<<<SQL
 ALTER TABLE tl_search
-    ADD keywords varchar(255) NOT NULL DEFAULT '',
-    ADD priority int(1) NOT NULL DEFAULT 2,
-    ADD imagepath varchar(512) NOT NULL DEFAULT '',
-    ADD startDate bigint(20) NOT NULL DEFAULT 0
+    ADD COLUMN IF NOT EXISTS keywords varchar(255) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS priority int(1) NOT NULL DEFAULT 2,
+    ADD COLUMN IF NOT EXISTS imagepath varchar(512) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS startDate bigint(20) NOT NULL DEFAULT 0
 SQL);
 
         return new MigrationResult(
