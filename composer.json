@@ -13,6 +13,9 @@
     }
   },
   "extra": {
-    "contao-manager-plugin": "MummertMedia\\ContaoMeilisearchBundle\\ContaoManager\\Plugin"
+    "contao-manager-plugin": {
+      "class": "MummertMedia\\ContaoMeilisearchBundle\\ContaoManager\\Plugin",
+      "icon": "icon.svg"
+    }
   }
 }
