@@ -12,6 +12,11 @@ class ExtendTlSearchMigration implements MigrationInterface
     {
     }
 
+    public function getName(): string
+    {
+        return 'mummert_media_extend_tl_search';
+    }
+
     public function shouldRun(): bool
     {
         $schemaManager = $this->connection->createSchemaManager();
