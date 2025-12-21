@@ -1,0 +1,6 @@
+.idea/
+vendor/
+var/cache/
+var/log/
+.vscode/
+.DS_Store
