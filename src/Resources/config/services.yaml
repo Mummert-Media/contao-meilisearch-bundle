@@ -1,0 +1,6 @@
+services:
+  MummertMedia\ContaoMeilisearchBundle\Migration\ExtendTlSearchMigration:
+    arguments:
+      - '@database_connection'
+    tags:
+      - { name: contao.migration }
