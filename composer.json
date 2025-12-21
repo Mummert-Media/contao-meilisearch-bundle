@@ -13,9 +13,7 @@
     }
   },
   "extra": {
-    "contao-manager-plugin": {
-      "class": "MummertMedia\\ContaoMeilisearchBundle\\ContaoManager\\Plugin",
-      "icon": "icon.svg"
+    "contao-manager-plugin": "MummertMedia\\ContaoMeilisearchBundle\\ContaoManager\\Plugin"
     }
   }
 }
