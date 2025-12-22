@@ -8,7 +8,7 @@ PaletteManipulator::create()
     ->addLegend('meilisearch_legend', 'pal_expert_legend', PaletteManipulator::POSITION_AFTER)
     ->addField('priority', 'meilisearch_legend')
     ->addField('keywords', 'meilisearch_legend')
-    ->applyToPalette('default', 'tl_calendar_events');
+    ->applyToPalettes('tl_calendar_events');
 
 /**
  * Priority
