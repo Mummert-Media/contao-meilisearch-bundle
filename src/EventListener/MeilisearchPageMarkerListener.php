@@ -10,24 +10,28 @@ class MeilisearchPageMarkerListener
 {
     public function onOutputFrontendTemplate(string $buffer, string $template): string
     {
+        // Nur Frontend-Seiten
         if (!isset($GLOBALS['objPage']) || !$GLOBALS['objPage'] instanceof PageModel) {
             return $buffer;
         }
 
+        $markers = $GLOBALS['MEILISEARCH_MARKERS'] ?? [];
+
         $page = $GLOBALS['objPage'];
 
+        /*
+         * PAGE-DATEN (immer vorhanden)
+         */
         $priority = (int) ($page->priority ?? 0);
         $keywords = trim((string) ($page->keywords ?? ''));
 
-        // 🔹 searchimage (Page → Fallback)
+        // searchimage: Page → Fallback
         $searchImageUuid = null;
 
-        // 1. Page-spezifisch
         if (!empty($page->searchimage)) {
             $searchImageUuid = StringUtil::binToUuid($page->searchimage);
         }
 
-        // 2. Fallback aus tl_settings
         if (!$searchImageUuid) {
             $fallback = Config::get('meilisearch_fallback_image');
             if ($fallback) {
@@ -35,25 +39,36 @@ class MeilisearchPageMarkerListener
             }
         }
 
-        // Wenn wirklich GAR nichts vorhanden ist → nichts tun
-        if ($priority <= 0 && $keywords === '' && !$searchImageUuid) {
-            return $buffer;
-        }
+        // Page-Marker sammeln
+        $markers['page'] = [
+            'priority'    => $priority > 0 ? $priority : null,
+            'keywords'    => $keywords !== '' ? $keywords : null,
+            'searchimage' => $searchImageUuid,
+        ];
 
-        // 🔹 Marker aufbauen
+        /*
+         * MARKER AUFBAUEN
+         */
         $lines = [];
         $lines[] = 'MEILISEARCH';
 
-        if ($priority > 0) {
-            $lines[] = 'page.priority=' . $priority;
+        foreach ($markers as $scope => $data) {
+            if (!is_array($data)) {
+                continue;
+            }
+
+            foreach ($data as $key => $value) {
+                if ($value === null || $value === '' || $value === 0) {
+                    continue;
+                }
+
+                $lines[] = $scope . '.' . $key . '=' . $value;
+            }
         }
 
-        if ($keywords !== '') {
-            $lines[] = 'page.keywords=' . $keywords;
-        }
-
-        if ($searchImageUuid) {
-            $lines[] = 'page.searchimage=' . $searchImageUuid;
+        // Wenn wirklich nichts da ist → nichts anhängen
+        if (count($lines) === 1) {
+            return $buffer;
         }
 
         $marker =
