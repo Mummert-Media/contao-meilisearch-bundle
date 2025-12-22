@@ -2,6 +2,7 @@
 
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
+use Contao\CalendarEventsModel;
 use Contao\Config;
 use Contao\PageModel;
 use Contao\StringUtil;
@@ -10,62 +11,59 @@ class MeilisearchPageMarkerListener
 {
     public function onOutputFrontendTemplate(string $buffer, string $template): string
     {
-        // Nur im Frontend
         if (!isset($GLOBALS['objPage']) || !$GLOBALS['objPage'] instanceof PageModel) {
             return $buffer;
         }
 
-        // 🔹 Marker aus vorherigen Listenern übernehmen
-        $markers = $GLOBALS['MEILISEARCH_MARKERS'] ?? [];
+        $lines = ['MEILISEARCH'];
 
+        // =========================
+        // PAGE
+        // =========================
         $page = $GLOBALS['objPage'];
 
-        // --- Page-Daten ---
-        $pagePriority = (int) ($page->priority ?? 0);
-        $pageKeywords = trim((string) ($page->keywords ?? ''));
+        if ((int) $page->priority > 0) {
+            $lines[] = 'page.priority=' . (int) $page->priority;
+        }
 
-        // --- Page searchimage → Fallback ---
+        if (trim((string) $page->keywords) !== '') {
+            $lines[] = 'page.keywords=' . trim((string) $page->keywords);
+        }
+
+        // searchimage (Page → Fallback)
         $searchImageUuid = null;
 
         if (!empty($page->searchimage)) {
             $searchImageUuid = StringUtil::binToUuid($page->searchimage);
+        } elseif ($fallback = Config::get('meilisearch_fallback_image')) {
+            $searchImageUuid = StringUtil::binToUuid($fallback);
         }
 
-        if (!$searchImageUuid) {
-            $fallback = Config::get('meilisearch_fallback_image');
-            if ($fallback) {
-                $searchImageUuid = StringUtil::binToUuid($fallback);
+        if ($searchImageUuid) {
+            $lines[] = 'page.searchimage=' . $searchImageUuid;
+        }
+
+        // =========================
+        // EVENT (Detailseite!)
+        // =========================
+        if (
+            isset($GLOBALS['objEvent']) &&
+            $GLOBALS['objEvent'] instanceof CalendarEventsModel
+        ) {
+            $event = $GLOBALS['objEvent'];
+
+            if ((int) $event->priority > 0) {
+                $lines[] = 'event.priority=' . (int) $event->priority;
+            }
+
+            if (trim((string) $event->keywords) !== '') {
+                $lines[] = 'event.keywords=' . trim((string) $event->keywords);
             }
         }
 
-        // Page-Marker nur ergänzen (niemals löschen)
-        $markers['page'] = array_merge(
-            $markers['page'] ?? [],
-            [
-                'priority'    => $pagePriority > 0 ? $pagePriority : null,
-                'keywords'    => $pageKeywords !== '' ? $pageKeywords : null,
-                'searchimage' => $searchImageUuid ?: null,
-            ]
-        );
-
-        // 🔹 Ausgabe bauen
-        $lines = ['MEILISEARCH'];
-
-        foreach ($markers as $scope => $data) {
-            if (!is_array($data)) {
-                continue;
-            }
-
-            foreach ($data as $key => $value) {
-                if ($value === null || $value === '' || $value === 0) {
-                    continue;
-                }
-
-                $lines[] = $scope . '.' . $key . '=' . $value;
-            }
-        }
-
-        // Wenn nichts drinsteht → nichts anhängen
+        // =========================
+        // OUTPUT
+        // =========================
         if (count($lines) === 1) {
             return $buffer;
         }
