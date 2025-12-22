@@ -4,13 +4,14 @@ namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
 use Contao\PageModel;
 use Contao\LayoutModel;
+use Contao\PageRegular;
 
 class MeilisearchPageMarkerListener
 {
     public function onGeneratePage(
         PageModel $page,
         LayoutModel $layout,
-        array &$pageData
+        PageRegular $pageRegular
     ): void {
         $priority = (int) $page->priority;
         $keywords = trim((string) $page->keywords);
@@ -36,7 +37,7 @@ class MeilisearchPageMarkerListener
             implode("\n", $lines) .
             "\n-->\n";
 
-        // HTML am Ende anhängen
-        $pageData['output'] .= $comment;
+        // 🔥 HTML-Ausgabe am Ende erweitern (Contao 5 korrekt)
+        $pageRegular->Template->output .= $comment;
     }
 }
