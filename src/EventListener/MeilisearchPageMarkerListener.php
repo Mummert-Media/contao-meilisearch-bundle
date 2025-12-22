@@ -12,7 +12,6 @@ class MeilisearchPageMarkerListener
 {
     public function onOutputFrontendTemplate(string $buffer, string $template): string
     {
-        // Nur Haupt-Frontend-Templates
         if (!in_array($template, ['fe_page', 'fe_custom'], true)) {
             return $buffer;
         }
@@ -21,9 +20,11 @@ class MeilisearchPageMarkerListener
 
         /*
          * =====================
-         * PAGE (tl_page + Fallback)
+         * PAGE (Basis + Fallback)
          * =====================
          */
+        $pageImageUuid = null;
+
         if (isset($GLOBALS['objPage']) && $GLOBALS['objPage'] instanceof PageModel) {
             $page = $GLOBALS['objPage'];
 
@@ -35,16 +36,18 @@ class MeilisearchPageMarkerListener
                 $lines[] = 'page.keywords=' . trim((string) $page->keywords);
             }
 
-            // 1️⃣ Page-spezifisches Bild
             if (!empty($page->searchimage)) {
-                $lines[] = 'page.searchimage=' . StringUtil::binToUuid($page->searchimage);
+                $pageImageUuid = StringUtil::binToUuid($page->searchimage);
+                $lines[] = 'page.searchimage=' . $pageImageUuid;
             }
-            // 2️⃣ Globales Fallback aus tl_settings
-            else {
-                $fallback = Config::get('meilisearch_fallback_image');
-                if (!empty($fallback)) {
-                    $lines[] = 'page.searchimage=' . StringUtil::binToUuid($fallback);
-                }
+        }
+
+        // Globales Fallback (nur wenn Page kein Bild hat)
+        if (!$pageImageUuid) {
+            $fallback = Config::get('meilisearch_fallback_image');
+            if ($fallback) {
+                $pageImageUuid = StringUtil::binToUuid($fallback);
+                $lines[] = 'page.searchimage=' . $pageImageUuid;
             }
         }
 
@@ -54,16 +57,8 @@ class MeilisearchPageMarkerListener
          * =====================
          */
         if (
-            preg_match(
-                '#\{[^}]*"@type"\s*:\s*"Event"[^}]*\}#s',
-                $buffer,
-                $eventBlock
-            )
-            && preg_match(
-                '#\\\/schema\\\/events\\\/(\d+)#',
-                $eventBlock[0],
-                $m
-            )
+            preg_match('#"@type"\s*:\s*"Event"#', $buffer) &&
+            preg_match('#\\\/schema\\\/events\\\/(\d+)#', $buffer, $m)
         ) {
             $event = CalendarEventsModel::findByPk((int) $m[1]);
 
@@ -75,6 +70,11 @@ class MeilisearchPageMarkerListener
                 if (!empty($event->keywords)) {
                     $lines[] = 'event.keywords=' . trim((string) $event->keywords);
                 }
+
+                // 🔥 Event-Bild überschreibt Page-Bild
+                if ($event->addImage && !empty($event->singleSRC)) {
+                    $lines[] = 'event.searchimage=' . StringUtil::binToUuid($event->singleSRC);
+                }
             }
         }
 
@@ -84,16 +84,8 @@ class MeilisearchPageMarkerListener
          * =====================
          */
         if (
-            preg_match(
-                '#\{[^}]*"@type"\s*:\s*"NewsArticle"[^}]*\}#s',
-                $buffer,
-                $newsBlock
-            )
-            && preg_match(
-                '#\\\/schema\\\/news\\\/(\d+)#',
-                $newsBlock[0],
-                $m
-            )
+            preg_match('#"@type"\s*:\s*"NewsArticle"#', $buffer) &&
+            preg_match('#\\\/schema\\\/news\\\/(\d+)#', $buffer, $m)
         ) {
             $news = NewsModel::findByPk((int) $m[1]);
 
@@ -105,10 +97,14 @@ class MeilisearchPageMarkerListener
                 if (!empty($news->keywords)) {
                     $lines[] = 'news.keywords=' . trim((string) $news->keywords);
                 }
+
+                // 🔥 News-Bild überschreibt Page-Bild
+                if ($news->addImage && !empty($news->singleSRC)) {
+                    $lines[] = 'news.searchimage=' . StringUtil::binToUuid($news->singleSRC);
+                }
             }
         }
 
-        // Nichts Relevantes → nichts einfügen
         if (count($lines) === 1) {
             return $buffer;
         }
@@ -118,11 +114,8 @@ class MeilisearchPageMarkerListener
             implode("\n", $lines) .
             "\n-->\n";
 
-        // Robust einfügen
-        if (str_contains($buffer, '</body>')) {
-            return str_replace('</body>', $marker . '</body>', $buffer);
-        }
-
-        return $buffer . $marker;
+        return str_contains($buffer, '</body>')
+            ? str_replace('</body>', $marker . '</body>', $buffer)
+            : $buffer . $marker;
     }
 }
