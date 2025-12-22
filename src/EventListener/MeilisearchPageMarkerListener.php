@@ -18,8 +18,9 @@ class MeilisearchPageMarkerListener
         )) {
             $debug[] = 'context=event';
 
+            // ✅ FIXED REGEX
             if (preg_match(
-                '#"#\\\/schema\\\/events\\\/(\d+)"#',
+                '#/schema/events/(\d+)#',
                 $eventBlock[0],
                 $m
             )) {
