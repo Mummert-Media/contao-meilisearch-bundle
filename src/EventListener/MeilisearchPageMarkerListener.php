@@ -8,25 +8,24 @@ class MeilisearchPageMarkerListener
     {
         $debug = [];
 
-        // 🔍 EVENT
-        if (preg_match('#"@type"\s*:\s*"Event"#', $buffer)) {
+        // =====================
+        // EVENT
+        // =====================
+        if (preg_match(
+            '#\{[^}]*"@type"\s*:\s*"Event"[^}]*\}#s',
+            $buffer,
+            $eventBlock
+        )) {
             $debug[] = 'context=event';
 
-            if (preg_match('#"#\\\/schema\\\/events\\\/(\d+)"#', $buffer, $m)) {
+            if (preg_match(
+                '#"#\\\/schema\\\/events\\\/(\d+)"#',
+                $eventBlock[0],
+                $m
+            )) {
                 $debug[] = 'event.id=' . $m[1];
             } else {
                 $debug[] = 'event.id=NOT_FOUND';
-            }
-        }
-
-        // 🔍 NEWS
-        if (preg_match('#"@type"\s*:\s*"NewsArticle"#', $buffer)) {
-            $debug[] = 'context=news';
-
-            if (preg_match('#"#\\\/schema\\\/news\\\/(\d+)"#', $buffer, $m)) {
-                $debug[] = 'news.id=' . $m[1];
-            } else {
-                $debug[] = 'news.id=NOT_FOUND';
             }
         }
 
