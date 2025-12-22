@@ -3,11 +3,15 @@
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
 use Contao\PageModel;
+use Contao\LayoutModel;
 
 class MeilisearchPageMarkerListener
 {
-    public function onGeneratePage(PageModel $page, string $layout, array &$pageData): void
-    {
+    public function onGeneratePage(
+        PageModel $page,
+        LayoutModel $layout,
+        array &$pageData
+    ): void {
         $priority = (int) $page->priority;
         $keywords = trim((string) $page->keywords);
 
