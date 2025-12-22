@@ -14,51 +14,50 @@ class MeilisearchPageMarkerListener
             return $buffer;
         }
 
+        // ✅ Vorhandene Marker (event/news) übernehmen
+        $markers = $GLOBALS['MEILISEARCH_MARKERS'] ?? [];
+
         $page = $GLOBALS['objPage'];
-        $lines = ['MEILISEARCH'];
 
-        // ======================
-        // PAGE
-        // ======================
-        if ((int) $page->priority > 0) {
-            $lines[] = 'page.priority=' . (int) $page->priority;
-        }
+        $priority = (int) ($page->priority ?? 0);
+        $keywords = trim((string) ($page->keywords ?? ''));
 
-        if (!empty($page->keywords)) {
-            $lines[] = 'page.keywords=' . trim($page->keywords);
-        }
+        // ✅ searchimage: Page → Fallback
+        $searchImageUuid = null;
 
         if (!empty($page->searchimage)) {
-            $lines[] = 'page.searchimage=' . StringUtil::binToUuid($page->searchimage);
+            $searchImageUuid = StringUtil::binToUuid($page->searchimage);
         }
 
-        // ======================
-        // EVENT
-        // ======================
-        if (!empty($GLOBALS['MEILISEARCH_MARKERS']['event'])) {
-            $event = $GLOBALS['MEILISEARCH_MARKERS']['event'];
-
-            if (!empty($event['priority'])) {
-                $lines[] = 'event.priority=' . $event['priority'];
-            }
-
-            if (!empty($event['keywords'])) {
-                $lines[] = 'event.keywords=' . $event['keywords'];
+        if (!$searchImageUuid) {
+            $fallback = Config::get('meilisearch_fallback_image');
+            if ($fallback) {
+                // tl_settings speichert varbinary(16) → UUID
+                $searchImageUuid = StringUtil::binToUuid($fallback);
             }
         }
 
-        // ======================
-        // NEWS (später)
-        // ======================
-        if (!empty($GLOBALS['MEILISEARCH_MARKERS']['news'])) {
-            $news = $GLOBALS['MEILISEARCH_MARKERS']['news'];
+        // ✅ Page-Marker NUR ergänzen, nicht alles überschreiben
+        $markers['page'] = [
+            'priority'    => $priority > 0 ? $priority : null,
+            'keywords'    => $keywords !== '' ? $keywords : null,
+            'searchimage' => $searchImageUuid ?: null,
+        ];
 
-            if (!empty($news['priority'])) {
-                $lines[] = 'news.priority=' . $news['priority'];
+        // ✅ Ausgabe bauen
+        $lines = ['MEILISEARCH'];
+
+        foreach ($markers as $scope => $data) {
+            if (!is_array($data)) {
+                continue;
             }
 
-            if (!empty($news['keywords'])) {
-                $lines[] = 'news.keywords=' . $news['keywords'];
+            foreach ($data as $key => $value) {
+                if ($value === null || $value === '' || $value === 0) {
+                    continue;
+                }
+
+                $lines[] = $scope . '.' . $key . '=' . $value;
             }
         }
 
@@ -66,7 +65,10 @@ class MeilisearchPageMarkerListener
             return $buffer;
         }
 
-        $marker = "\n<!--\n" . implode("\n", $lines) . "\n-->\n";
+        $marker =
+            "\n<!--\n" .
+            implode("\n", $lines) .
+            "\n-->\n";
 
         return str_replace('</body>', $marker . '</body>', $buffer);
     }
