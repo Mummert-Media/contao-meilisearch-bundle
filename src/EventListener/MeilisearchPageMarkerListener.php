@@ -4,6 +4,7 @@ namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
 use Contao\PageModel;
 use Contao\StringUtil;
+use Contao\Config;
 
 class MeilisearchPageMarkerListener
 {
@@ -18,17 +19,28 @@ class MeilisearchPageMarkerListener
         $priority = (int) ($page->priority ?? 0);
         $keywords = trim((string) ($page->keywords ?? ''));
 
-        // 🔹 searchimage (UUID)
+        // 🔹 searchimage (Page → Fallback)
         $searchImageUuid = null;
+
+        // 1. Page-spezifisch
         if (!empty($page->searchimage)) {
-            // falls binär → UUID-String
             $searchImageUuid = StringUtil::binToUuid($page->searchimage);
         }
 
+        // 2. Fallback aus tl_settings
+        if (!$searchImageUuid) {
+            $fallback = Config::get('meilisearch_fallback_image');
+            if ($fallback) {
+                $searchImageUuid = StringUtil::binToUuid($fallback);
+            }
+        }
+
+        // Wenn wirklich GAR nichts vorhanden ist → nichts tun
         if ($priority <= 0 && $keywords === '' && !$searchImageUuid) {
             return $buffer;
         }
 
+        // 🔹 Marker aufbauen
         $lines = [];
         $lines[] = 'MEILISEARCH';
 

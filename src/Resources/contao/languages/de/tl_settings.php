@@ -13,3 +13,8 @@ $GLOBALS['TL_LANG']['tl_settings']['meilisearch_api'][1] = 'API-Schlüssel für 
 
 $GLOBALS['TL_LANG']['tl_settings']['meilisearch_imagesize'][0] = 'Bildgröße für Vorschaubilder';
 $GLOBALS['TL_LANG']['tl_settings']['meilisearch_imagesize'][1] = 'Bildgröße aus den Contao-Bildgrößen (tl_image_size).';
+
+$GLOBALS['TL_LANG']['tl_settings']['meilisearch_fallback_image'] = [
+    'Fallback-Bild für die Suche',
+    'Dieses Bild wird verwendet, wenn für eine Seite, News oder ein Event kein Suchbild gesetzt ist.',
+];
