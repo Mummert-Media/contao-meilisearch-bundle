@@ -3,34 +3,34 @@
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
 use Contao\NewsModel;
+use Contao\Template;
 
 class MeilisearchNewsMarkerListener
 {
-    public function onParseFrontendTemplate(string $buffer, string $template): string
+    public function onParseTemplate(Template $template): void
     {
-        if ($template !== 'mod_newsreader') {
-            return $buffer;
+        // Nur News-Reader
+        if ($template->getName() !== 'mod_newsreader') {
+            return;
         }
 
         if (
-            !isset($GLOBALS['objNews']) ||
-            !$GLOBALS['objNews'] instanceof NewsModel
+            !isset($GLOBALS['objArticle']) ||
+            !$GLOBALS['objArticle'] instanceof NewsModel
         ) {
-            return $buffer;
+            return;
         }
 
-        // News vollständig nachladen (Custom-Felder!)
-        $news = NewsModel::findByPk($GLOBALS['objNews']->id);
+        // 🔥 News vollständig laden (inkl. Custom-Felder)
+        $news = NewsModel::findByPk($GLOBALS['objArticle']->id);
 
         if ($news === null) {
-            return $buffer;
+            return;
         }
 
         $GLOBALS['MEILISEARCH_MARKERS']['news'] = [
             'priority' => (int) ($news->priority ?? 0),
             'keywords' => trim((string) ($news->keywords ?? '')),
         ];
-
-        return $buffer;
     }
 }

@@ -15,14 +15,14 @@ $GLOBALS['TL_HOOKS']['indexPage'][] = [
     'onIndexPage'
 ];
 
-$GLOBALS['TL_HOOKS']['parseFrontendTemplate'][] = [
+$GLOBALS['TL_HOOKS']['parseTemplate'][] = [
     MeilisearchNewsMarkerListener::class,
-    'onParseFrontendTemplate',
+    'onParseTemplate',
 ];
 
-$GLOBALS['TL_HOOKS']['parseFrontendTemplate'][] = [
+$GLOBALS['TL_HOOKS']['parseTemplate'][] = [
     MeilisearchEventMarkerListener::class,
-    'onParseFrontendTemplate',
+    'onParseTemplate',
 ];
 
 $GLOBALS['MEILISEARCH_MARKERS'] = [];
