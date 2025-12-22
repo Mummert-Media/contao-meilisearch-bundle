@@ -1,6 +1,7 @@
 services:
+  # nur echte PHP-Klassen laden, NICHT Resources
   MummertMedia\ContaoMeilisearchBundle\:
-    resource: '../../*'
+    resource: '../../{EventListener,Service}/*'
     autowire: true
     autoconfigure: true
     public: true
