@@ -1,18 +1,16 @@
 <?php
 
+use Contao\CoreBundle\DataContainer\PaletteManipulator;
 
 $dca = &$GLOBALS['TL_DCA']['tl_calendar_events'];
 
-use Contao\CoreBundle\DataContainer\PaletteManipulator;
-
-/**
- * Palettes
- */
-PaletteManipulator::create()
-    ->addLegend('meilisearch_legend', 'pal_expert_legend', PaletteManipulator::POSITION_AFTER)
-    ->addField('priority', 'meilisearch_legend')
-    ->addField('keywords', 'meilisearch_legend')
-    ->applyToPalette('default', 'tl_calendar_events');
+if (isset($dca['palettes']['default'])) {
+    PaletteManipulator::create()
+        ->addLegend('meilisearch_legend', 'pal_expert_legend', PaletteManipulator::POSITION_AFTER)
+        ->addField('priority', 'meilisearch_legend')
+        ->addField('keywords', 'meilisearch_legend')
+        ->applyToPalette('default', 'tl_calendar_events');
+}
 
 /**
  * Priority
