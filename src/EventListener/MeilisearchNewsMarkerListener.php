@@ -2,27 +2,33 @@
 
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
-use Contao\NewsModel;
-use Contao\Template;
+use Contao\CalendarEventsModel;
 
-$GLOBALS['MEILISEARCH_MARKERS']['event']['debug'] = 'event_listener_called';
-class MeilisearchNewsMarkerListener
+class MeilisearchEventMarkerListener
 {
     public function onParseFrontendTemplate(string $buffer, string $template): string
     {
-        if ($template !== 'mod_newsreader') {
+        if ($template !== 'mod_eventreader') {
             return $buffer;
         }
 
-        if (!isset($GLOBALS['news']) || !$GLOBALS['news'] instanceof NewsModel) {
+        if (
+            !isset($GLOBALS['objEvent']) ||
+            !$GLOBALS['objEvent'] instanceof CalendarEventsModel
+        ) {
             return $buffer;
         }
 
-        $news = $GLOBALS['news'];
+        // 🔥 Event vollständig aus DB laden
+        $event = CalendarEventsModel::findByPk($GLOBALS['objEvent']->id);
 
-        $GLOBALS['MEILISEARCH_MARKERS']['news'] = [
-            'priority' => (int) ($news->priority ?? 0),
-            'keywords' => trim((string) ($news->keywords ?? '')),
+        if ($event === null) {
+            return $buffer;
+        }
+
+        $GLOBALS['MEILISEARCH_MARKERS']['event'] = [
+            'priority' => (int) ($event->priority ?? 0),
+            'keywords' => trim((string) ($event->keywords ?? '')),
         ];
 
         return $buffer;
