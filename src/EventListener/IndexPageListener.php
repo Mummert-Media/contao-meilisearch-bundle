@@ -2,6 +2,7 @@
 
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
+use Contao\CoreBundle\ServiceAnnotation\Hook;
 use MummertMedia\ContaoMeilisearchBundle\Service\SearchDataProvider;
 
 class IndexPageListener
@@ -10,9 +11,12 @@ class IndexPageListener
         private readonly SearchDataProvider $dataProvider
     ) {}
 
-    // 👇 WICHTIG: exakt dieser Methodenname
+    /**
+     * @Hook("indexPage")
+     */
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
+        // 🔍 DEBUG – MUSS jetzt feuern
         file_put_contents(
             TL_ROOT . '/var/logs/meili-debug.log',
             json_encode($set, JSON_PRETTY_PRINT) . "\n\n",
