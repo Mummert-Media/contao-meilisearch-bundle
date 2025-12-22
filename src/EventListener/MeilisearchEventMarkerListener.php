@@ -8,15 +8,20 @@ class MeilisearchEventMarkerListener
 {
     public function onParseFrontendTemplate(string $buffer, string $template): string
     {
+        // Nur Event-Reader
         if ($template !== 'mod_eventreader') {
             return $buffer;
         }
 
-        if (!isset($GLOBALS['event']) || !$GLOBALS['event'] instanceof CalendarEventsModel) {
+        // Contao 5: objEvent!
+        if (
+            !isset($GLOBALS['objEvent']) ||
+            !$GLOBALS['objEvent'] instanceof CalendarEventsModel
+        ) {
             return $buffer;
         }
 
-        $event = $GLOBALS['event'];
+        $event = $GLOBALS['objEvent'];
 
         $GLOBALS['MEILISEARCH_MARKERS']['event'] = [
             'priority' => (int) ($event->priority ?? 0),
