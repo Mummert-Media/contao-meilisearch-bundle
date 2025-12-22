@@ -25,4 +25,6 @@ $GLOBALS['TL_HOOKS']['parseTemplate'][] = [
     'onParseTemplate',
 ];
 
-$GLOBALS['MEILISEARCH_MARKERS'] = [];
+if (!isset($GLOBALS['MEILISEARCH_MARKERS'])) {
+    $GLOBALS['MEILISEARCH_MARKERS'] = [];
+}

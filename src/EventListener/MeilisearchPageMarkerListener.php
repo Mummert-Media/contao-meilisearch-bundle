@@ -10,19 +10,21 @@ class MeilisearchPageMarkerListener
 {
     public function onOutputFrontendTemplate(string $buffer, string $template): string
     {
+        // Nur im Frontend
         if (!isset($GLOBALS['objPage']) || !$GLOBALS['objPage'] instanceof PageModel) {
             return $buffer;
         }
 
-        // ✅ Vorhandene Marker (event/news) übernehmen
+        // 🔹 Marker aus vorherigen Listenern übernehmen
         $markers = $GLOBALS['MEILISEARCH_MARKERS'] ?? [];
 
         $page = $GLOBALS['objPage'];
 
-        $priority = (int) ($page->priority ?? 0);
-        $keywords = trim((string) ($page->keywords ?? ''));
+        // --- Page-Daten ---
+        $pagePriority = (int) ($page->priority ?? 0);
+        $pageKeywords = trim((string) ($page->keywords ?? ''));
 
-        // ✅ searchimage: Page → Fallback
+        // --- Page searchimage → Fallback ---
         $searchImageUuid = null;
 
         if (!empty($page->searchimage)) {
@@ -32,19 +34,21 @@ class MeilisearchPageMarkerListener
         if (!$searchImageUuid) {
             $fallback = Config::get('meilisearch_fallback_image');
             if ($fallback) {
-                // tl_settings speichert varbinary(16) → UUID
                 $searchImageUuid = StringUtil::binToUuid($fallback);
             }
         }
 
-        // ✅ Page-Marker NUR ergänzen, nicht alles überschreiben
-        $markers['page'] = [
-            'priority'    => $priority > 0 ? $priority : null,
-            'keywords'    => $keywords !== '' ? $keywords : null,
-            'searchimage' => $searchImageUuid ?: null,
-        ];
+        // Page-Marker nur ergänzen (niemals löschen)
+        $markers['page'] = array_merge(
+            $markers['page'] ?? [],
+            [
+                'priority'    => $pagePriority > 0 ? $pagePriority : null,
+                'keywords'    => $pageKeywords !== '' ? $pageKeywords : null,
+                'searchimage' => $searchImageUuid ?: null,
+            ]
+        );
 
-        // ✅ Ausgabe bauen
+        // 🔹 Ausgabe bauen
         $lines = ['MEILISEARCH'];
 
         foreach ($markers as $scope => $data) {
@@ -61,6 +65,7 @@ class MeilisearchPageMarkerListener
             }
         }
 
+        // Wenn nichts drinsteht → nichts anhängen
         if (count($lines) === 1) {
             return $buffer;
         }
