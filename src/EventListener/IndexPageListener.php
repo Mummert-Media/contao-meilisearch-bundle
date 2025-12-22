@@ -4,15 +4,21 @@ namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
 class IndexPageListener
 {
-    /**
-     * Wird bei jeder Indexierung aufgerufen
-     */
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
-        // absolut eindeutiger Beweis
-        error_log('### MEILI TEST LISTENER CALLED ###');
+        echo PHP_EOL;
+        echo '================ MEILI INDEX DEBUG ================' . PHP_EOL;
 
-        // optional: Kontext anzeigen
-        error_log('### MEILI SET: ' . json_encode($set));
+        echo '--- CONTENT (first 500 chars) ---------------------' . PHP_EOL;
+        echo substr(strip_tags($content), 0, 500) . PHP_EOL;
+
+        echo '--- DATA (tl_search record, BEFORE write) ---------' . PHP_EOL;
+        print_r($data);
+
+        echo '--- SET (context) ---------------------------------' . PHP_EOL;
+        print_r($set);
+
+        echo '==================================================' . PHP_EOL;
+        echo PHP_EOL;
     }
 }
