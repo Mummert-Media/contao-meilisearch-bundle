@@ -117,6 +117,21 @@ class MeilisearchPageMarkerListener
 
         /*
          * =====================
+         * CUSTOM SEARCHIMAGE (UUID direkt aus Markup)
+         * =====================
+         */
+        if (
+            preg_match(
+                '#data-searchimage-uuid="([a-f0-9\-]{36})"#i',
+                $buffer,
+                $m
+            )
+        ) {
+            $lines[] = 'custom.searchimage=' . $m[1];
+        }
+
+        /*
+         * =====================
          * PAGE IMAGE FALLBACK
          * =====================
          */
