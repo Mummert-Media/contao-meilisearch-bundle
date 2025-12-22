@@ -8,9 +8,6 @@ class MeilisearchPageMarkerListener
     {
         $debug = [];
 
-        // =====================
-        // EVENT
-        // =====================
         if (preg_match(
             '#\{[^}]*"@type"\s*:\s*"Event"[^}]*\}#s',
             $buffer,
@@ -18,9 +15,9 @@ class MeilisearchPageMarkerListener
         )) {
             $debug[] = 'context=event';
 
-            // ✅ FIXED REGEX
+            // ✅ KORREKT für deinen Buffer
             if (preg_match(
-                '#/schema/events/(\d+)#',
+                '#\\\/schema\\\/events\\\/(\d+)#',
                 $eventBlock[0],
                 $m
             )) {
