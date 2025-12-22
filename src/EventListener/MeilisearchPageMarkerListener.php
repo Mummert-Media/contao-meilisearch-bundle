@@ -20,7 +20,7 @@ class MeilisearchPageMarkerListener
 
         /*
          * =====================
-         * PAGE (Basis + Fallback)
+         * PAGE (Basis)
          * =====================
          */
         $pageImageUuid = null;
@@ -38,70 +38,94 @@ class MeilisearchPageMarkerListener
 
             if (!empty($page->searchimage)) {
                 $pageImageUuid = StringUtil::binToUuid($page->searchimage);
-                $lines[] = 'page.searchimage=' . $pageImageUuid;
             }
         }
 
-        // Globales Fallback (nur wenn Page kein Bild hat)
-        if (!$pageImageUuid) {
+        /*
+         * =====================
+         * SCHEMA.ORG BLÖCKE
+         * =====================
+         */
+        preg_match_all(
+            '#<script type="application/ld\+json">\s*(\{.*?\})\s*</script>#s',
+            $buffer,
+            $jsonBlocks
+        );
+
+        foreach ($jsonBlocks[1] as $json) {
+
+            /*
+             * =====================
+             * EVENT
+             * =====================
+             */
+            if (preg_match('#"@type"\s*:\s*"Event"#', $json)) {
+
+                if (preg_match('#\\\/schema\\\/events\\\/(\d+)#', $json, $m)) {
+                    $event = CalendarEventsModel::findByPk((int) $m[1]);
+
+                    if ($event !== null) {
+                        if (!empty($event->priority)) {
+                            $lines[] = 'event.priority=' . (int) $event->priority;
+                        }
+
+                        if (!empty($event->keywords)) {
+                            $lines[] = 'event.keywords=' . trim((string) $event->keywords);
+                        }
+
+                        if ($event->addImage && !empty($event->singleSRC)) {
+                            $lines[] = 'event.searchimage=' . StringUtil::binToUuid($event->singleSRC);
+                        }
+                    }
+                }
+
+                if (preg_match('#"startDate"\s*:\s*"([^"]+)"#', $json, $dm)) {
+                    $lines[] = 'event.date=' . $dm[1];
+                }
+            }
+
+            /*
+             * =====================
+             * NEWS
+             * =====================
+             */
+            if (preg_match('#"@type"\s*:\s*"NewsArticle"#', $json)) {
+
+                if (preg_match('#\\\/schema\\\/news\\\/(\d+)#', $json, $m)) {
+                    $news = NewsModel::findByPk((int) $m[1]);
+
+                    if ($news !== null) {
+                        if (!empty($news->priority)) {
+                            $lines[] = 'news.priority=' . (int) $news->priority;
+                        }
+
+                        if (!empty($news->keywords)) {
+                            $lines[] = 'news.keywords=' . trim((string) $news->keywords);
+                        }
+
+                        if ($news->addImage && !empty($news->singleSRC)) {
+                            $lines[] = 'news.searchimage=' . StringUtil::binToUuid($news->singleSRC);
+                        }
+                    }
+                }
+
+                if (preg_match('#"datePublished"\s*:\s*"([^"]+)"#', $json, $dm)) {
+                    $lines[] = 'news.date=' . $dm[1];
+                }
+            }
+        }
+
+        /*
+         * =====================
+         * PAGE IMAGE FALLBACK
+         * =====================
+         */
+        if ($pageImageUuid) {
+            $lines[] = 'page.searchimage=' . $pageImageUuid;
+        } else {
             $fallback = Config::get('meilisearch_fallback_image');
             if ($fallback) {
-                $pageImageUuid = StringUtil::binToUuid($fallback);
-                $lines[] = 'page.searchimage=' . $pageImageUuid;
-            }
-        }
-
-        /*
-         * =====================
-         * EVENT (schema.org)
-         * =====================
-         */
-        if (
-            preg_match('#"@type"\s*:\s*"Event"#', $buffer) &&
-            preg_match('#\\\/schema\\\/events\\\/(\d+)#', $buffer, $m)
-        ) {
-            $event = CalendarEventsModel::findByPk((int) $m[1]);
-
-            if ($event !== null) {
-                if (!empty($event->priority)) {
-                    $lines[] = 'event.priority=' . (int) $event->priority;
-                }
-
-                if (!empty($event->keywords)) {
-                    $lines[] = 'event.keywords=' . trim((string) $event->keywords);
-                }
-
-                // 🔥 Event-Bild überschreibt Page-Bild
-                if ($event->addImage && !empty($event->singleSRC)) {
-                    $lines[] = 'event.searchimage=' . StringUtil::binToUuid($event->singleSRC);
-                }
-            }
-        }
-
-        /*
-         * =====================
-         * NEWS (schema.org)
-         * =====================
-         */
-        if (
-            preg_match('#"@type"\s*:\s*"NewsArticle"#', $buffer) &&
-            preg_match('#\\\/schema\\\/news\\\/(\d+)#', $buffer, $m)
-        ) {
-            $news = NewsModel::findByPk((int) $m[1]);
-
-            if ($news !== null) {
-                if (!empty($news->priority)) {
-                    $lines[] = 'news.priority=' . (int) $news->priority;
-                }
-
-                if (!empty($news->keywords)) {
-                    $lines[] = 'news.keywords=' . trim((string) $news->keywords);
-                }
-
-                // 🔥 News-Bild überschreibt Page-Bild
-                if ($news->addImage && !empty($news->singleSRC)) {
-                    $lines[] = 'news.searchimage=' . StringUtil::binToUuid($news->singleSRC);
-                }
+                $lines[] = 'page.searchimage=' . StringUtil::binToUuid($fallback);
             }
         }
 
@@ -111,7 +135,7 @@ class MeilisearchPageMarkerListener
 
         $marker =
             "\n<!--\n" .
-            implode("\n", $lines) .
+            implode("\n", array_unique($lines)) .
             "\n-->\n";
 
         return str_contains($buffer, '</body>')
