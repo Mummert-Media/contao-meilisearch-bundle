@@ -2,5 +2,4 @@ services:
   MummertMedia\ContaoMeilisearchBundle\Service\SearchDataProvider: ~
 
   MummertMedia\ContaoMeilisearchBundle\EventListener\IndexPageListener:
-    tags:
-      - { name: contao.hook, hook: indexPage, method: onIndexPage }
+    public: true
