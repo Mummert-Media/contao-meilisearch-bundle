@@ -5,6 +5,7 @@ namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 use Contao\NewsModel;
 use Contao\Template;
 
+$GLOBALS['MEILISEARCH_MARKERS']['event']['debug'] = 'event_listener_called';
 class MeilisearchNewsMarkerListener
 {
     public function onParseFrontendTemplate(string $buffer, string $template): string
