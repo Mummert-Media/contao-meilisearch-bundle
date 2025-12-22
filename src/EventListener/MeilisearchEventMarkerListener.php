@@ -8,12 +8,10 @@ class MeilisearchEventMarkerListener
 {
     public function onParseFrontendTemplate(string $buffer, string $template): string
     {
-        // Nur Event-Reader
         if ($template !== 'mod_eventreader') {
             return $buffer;
         }
 
-        // Contao 5: objEvent!
         if (
             !isset($GLOBALS['objEvent']) ||
             !$GLOBALS['objEvent'] instanceof CalendarEventsModel
@@ -21,7 +19,12 @@ class MeilisearchEventMarkerListener
             return $buffer;
         }
 
-        $event = $GLOBALS['objEvent'];
+        // 🔥 Event vollständig aus DB laden
+        $event = CalendarEventsModel::findByPk($GLOBALS['objEvent']->id);
+
+        if ($event === null) {
+            return $buffer;
+        }
 
         $GLOBALS['MEILISEARCH_MARKERS']['event'] = [
             'priority' => (int) ($event->priority ?? 0),
