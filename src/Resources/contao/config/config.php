@@ -3,9 +3,9 @@
 use MummertMedia\ContaoMeilisearchBundle\EventListener\IndexPageListener;
 use MummertMedia\ContaoMeilisearchBundle\EventListener\MeilisearchPageMarkerListener;
 
-$GLOBALS['TL_HOOKS']['generatePage'][] = [
+$GLOBALS['TL_HOOKS']['outputFrontendTemplate'][] = [
     MeilisearchPageMarkerListener::class,
-    'onGeneratePage'
+    'onOutputFrontendTemplate',
 ];
 
 $GLOBALS['TL_HOOKS']['indexPage'][] = [
