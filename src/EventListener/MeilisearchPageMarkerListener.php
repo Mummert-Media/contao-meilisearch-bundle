@@ -16,11 +16,9 @@ class MeilisearchPageMarkerListener
         }
 
         $lines = ['MEILISEARCH'];
+        $page  = $GLOBALS['objPage'];
 
-        // =========================
-        // PAGE
-        // =========================
-        $page = $GLOBALS['objPage'];
+        /* ================= PAGE ================= */
 
         if ((int) $page->priority > 0) {
             $lines[] = 'page.priority=' . (int) $page->priority;
@@ -30,7 +28,6 @@ class MeilisearchPageMarkerListener
             $lines[] = 'page.keywords=' . trim((string) $page->keywords);
         }
 
-        // searchimage (Page → Fallback)
         $searchImageUuid = null;
 
         if (!empty($page->searchimage)) {
@@ -43,27 +40,25 @@ class MeilisearchPageMarkerListener
             $lines[] = 'page.searchimage=' . $searchImageUuid;
         }
 
-        // =========================
-        // EVENT (Detailseite!)
-        // =========================
-        if (
-            isset($GLOBALS['objEvent']) &&
-            $GLOBALS['objEvent'] instanceof CalendarEventsModel
-        ) {
-            $event = $GLOBALS['objEvent'];
+        /* ================= EVENT ================= */
 
-            if ((int) $event->priority > 0) {
-                $lines[] = 'event.priority=' . (int) $event->priority;
-            }
+        if (preg_match('/<!--\s*MEILI_EVENT id=(\d+)\s*-->/', $buffer, $m)) {
+            $eventId = (int) $m[1];
+            $event   = CalendarEventsModel::findByPk($eventId);
 
-            if (trim((string) $event->keywords) !== '') {
-                $lines[] = 'event.keywords=' . trim((string) $event->keywords);
+            if ($event !== null) {
+                if ((int) $event->priority > 0) {
+                    $lines[] = 'event.priority=' . (int) $event->priority;
+                }
+
+                if (trim((string) $event->keywords) !== '') {
+                    $lines[] = 'event.keywords=' . trim((string) $event->keywords);
+                }
             }
         }
 
-        // =========================
-        // OUTPUT
-        // =========================
+        /* ================= OUTPUT ================= */
+
         if (count($lines) === 1) {
             return $buffer;
         }
