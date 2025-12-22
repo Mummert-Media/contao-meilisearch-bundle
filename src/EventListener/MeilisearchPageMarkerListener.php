@@ -6,6 +6,7 @@ use Contao\PageModel;
 use Contao\CalendarEventsModel;
 use Contao\NewsModel;
 use Contao\StringUtil;
+use Contao\Config;
 
 class MeilisearchPageMarkerListener
 {
@@ -20,7 +21,7 @@ class MeilisearchPageMarkerListener
 
         /*
          * =====================
-         * PAGE (tl_page)
+         * PAGE (tl_page + Fallback)
          * =====================
          */
         if (isset($GLOBALS['objPage']) && $GLOBALS['objPage'] instanceof PageModel) {
@@ -34,8 +35,16 @@ class MeilisearchPageMarkerListener
                 $lines[] = 'page.keywords=' . trim((string) $page->keywords);
             }
 
+            // 1️⃣ Page-spezifisches Bild
             if (!empty($page->searchimage)) {
                 $lines[] = 'page.searchimage=' . StringUtil::binToUuid($page->searchimage);
+            }
+            // 2️⃣ Globales Fallback aus tl_settings
+            else {
+                $fallback = Config::get('meilisearch_fallback_image');
+                if (!empty($fallback)) {
+                    $lines[] = 'page.searchimage=' . StringUtil::binToUuid($fallback);
+                }
             }
         }
 
