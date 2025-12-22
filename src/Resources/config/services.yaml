@@ -1,0 +1,8 @@
+services:
+  MummertMedia\ContaoMeilisearchBundle\Service\SearchDataProvider: ~
+
+  MummertMedia\ContaoMeilisearchBundle\EventListener\IndexPageListener:
+    arguments:
+      - '@MummertMedia\ContaoMeilisearchBundle\Service\SearchDataProvider'
+    tags:
+      - { name: contao.hook, hook: indexPage }
