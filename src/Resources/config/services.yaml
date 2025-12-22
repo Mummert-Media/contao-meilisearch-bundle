@@ -1,5 +1,6 @@
 services:
-  MummertMedia\ContaoMeilisearchBundle\Service\SearchDataProvider: ~
-
-  MummertMedia\ContaoMeilisearchBundle\EventListener\IndexPageListener:
+  MummertMedia\ContaoMeilisearchBundle\:
+    resource: '../../*'
+    autowire: true
+    autoconfigure: true
     public: true
