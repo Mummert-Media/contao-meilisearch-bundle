@@ -9,7 +9,6 @@ class MeilisearchEventMarkerListener
 {
     public function onParseTemplate(Template $template): void
     {
-        // Exakter Template-Name – kein Raten
         if ($template->getName() !== 'mod_eventreader') {
             return;
         }
@@ -21,7 +20,6 @@ class MeilisearchEventMarkerListener
             return;
         }
 
-        // 🔥 Event vollständig laden (inkl. Custom-Felder)
         $event = CalendarEventsModel::findByPk($GLOBALS['objEvent']->id);
 
         if ($event === null) {
