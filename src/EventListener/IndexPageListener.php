@@ -2,6 +2,8 @@
 
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
+use Contao\Database;
+use Contao\StringUtil;
 use Smalot\PdfParser\Parser;
 
 class IndexPageListener
@@ -13,16 +15,15 @@ class IndexPageListener
             return;
         }
 
-        // JSON aus Kommentar extrahieren + parsen
+        // JSON aus Kommentar extrahieren
         $parsed = $this->extractMeilisearchJson($content);
-
         if ($parsed === null) {
             return;
         }
 
         /*
          * =====================
-         * PRIORITY (event > news > page)
+         * PRIORITY
          * =====================
          */
         $priority =
@@ -36,7 +37,7 @@ class IndexPageListener
 
         /*
          * =====================
-         * KEYWORDS (merge)
+         * KEYWORDS
          * =====================
          */
         $keywordSources = [
@@ -45,26 +46,26 @@ class IndexPageListener
             $parsed['page']['keywords']  ?? null,
         ];
 
-        $kw = [];
-        foreach ($keywordSources as $s) {
-            if (!is_string($s) || trim($s) === '') {
+        $keywords = [];
+        foreach ($keywordSources as $src) {
+            if (!is_string($src) || trim($src) === '') {
                 continue;
             }
 
-            foreach (preg_split('/\s+/', trim($s)) ?: [] as $p) {
-                if ($p !== '') {
-                    $kw[] = $p;
+            foreach (preg_split('/\s+/', trim($src)) as $word) {
+                if ($word !== '') {
+                    $keywords[] = $word;
                 }
             }
         }
 
-        if ($kw) {
-            $set['keywords'] = implode(' ', array_unique($kw));
+        if ($keywords) {
+            $set['keywords'] = implode(' ', array_unique($keywords));
         }
 
         /*
          * =====================
-         * IMAGEPATH (event > news > page > custom)
+         * IMAGEPATH
          * =====================
          */
         $image =
@@ -79,7 +80,7 @@ class IndexPageListener
 
         /*
          * =====================
-         * STARTDATE (event/news)
+         * STARTDATE
          * =====================
          */
         $date =
@@ -95,20 +96,16 @@ class IndexPageListener
 
         /*
          * =====================
-         * PDF LINKS INDEXIEREN
+         * PDFS ALS EIGENE DOKUMENTE INDEXIEREN
          * =====================
          */
-        $pdfText = $this->extractPdfTextFromContent($content);
-
-        if ($pdfText !== '') {
-            $set['text'] = trim(
-                ($set['text'] ?? '') . "\n\n" . $pdfText
-            );
-        }
+        $this->indexPdfLinks($content);
     }
 
     /**
-     * Extrahiert das JSON aus <!-- MEILISEARCH_JSON {...} -->
+     * -------------------------------------
+     * JSON aus Kommentar extrahieren
+     * -------------------------------------
      */
     private function extractMeilisearchJson(string $content): ?array
     {
@@ -123,39 +120,36 @@ class IndexPageListener
     }
 
     /**
-     * Findet PDF-Links im HTML und extrahiert deren Text
+     * -------------------------------------
+     * PDF-Links finden und indexieren
+     * -------------------------------------
      */
-    private function extractPdfTextFromContent(string $content): string
+    private function indexPdfLinks(string $content): void
     {
         if (!preg_match_all(
-            '/<a\s+[^>]*href=["\']([^"\']+\.pdf[^"\']*)["\'][^>]*>/i',
+            '/<a\s+[^>]*href=["\']([^"\']+\.pdf[^"\']*)["\'][^>]*>(.*?)<\/a>/is',
             $content,
             $matches
         )) {
-            return '';
+            return;
         }
 
-        $texts = [];
-
-        foreach ($matches[1] as $url) {
-            $pdfText = $this->parsePdfFromUrl($url);
-
-            if ($pdfText !== '') {
-                $texts[] = $pdfText;
-            }
+        foreach ($matches[1] as $i => $url) {
+            $title = trim(strip_tags($matches[2][$i])) ?: basename($url);
+            $this->indexSinglePdf($url, $title);
         }
-
-        return implode("\n\n", $texts);
     }
 
     /**
-     * Lädt und parsed ein PDF (nur /files/)
+     * -------------------------------------
+     * Einzelnes PDF indexieren
+     * -------------------------------------
      */
-    private function parsePdfFromUrl(string $url): string
+    private function indexSinglePdf(string $url, string $title): void
     {
-        // Nur interne PDFs
+        // nur interne PDFs
         if (!str_contains($url, '/files/')) {
-            return '';
+            return;
         }
 
         // relative URLs normalisieren
@@ -166,19 +160,62 @@ class IndexPageListener
                 . $url;
         }
 
+        $checksum = md5($url);
+        $db = Database::getInstance();
+
+        // bereits indexiert?
+        $exists = $db
+            ->prepare('SELECT id FROM tl_search WHERE checksum=?')
+            ->execute($checksum);
+
+        if ($exists->numRows > 0) {
+            return;
+        }
+
+        $text = $this->parsePdf($url);
+        if ($text === '') {
+            return;
+        }
+
+        $db
+            ->prepare('
+                INSERT INTO tl_search
+                    (tstamp, title, url, text, checksum, protected, pid, type)
+                VALUES
+                    (?, ?, ?, ?, ?, ?, ?, ?)
+            ')
+            ->execute(
+                time(),
+                StringUtil::decodeEntities($title),
+                $url,
+                $text,
+                $checksum,
+                '',
+                0,
+                'file'
+            );
+    }
+
+    /**
+     * -------------------------------------
+     * PDF parsen (Smalot)
+     * -------------------------------------
+     */
+    private function parsePdf(string $url): string
+    {
         try {
-            $pdfContent = @file_get_contents($url);
-            if (!$pdfContent) {
+            $content = @file_get_contents($url);
+            if (!$content) {
                 return '';
             }
 
             $parser = new Parser();
-            $pdf = $parser->parseContent($pdfContent);
+            $pdf = $parser->parseContent($content);
 
             $text = $this->cleanPdfContent($pdf->getText());
 
-            // Begrenzung für Meilisearch
-            return mb_substr($text, 0, 2000);
+            // Begrenzen (Performance + Relevanz)
+            return mb_substr($text, 0, 5000);
 
         } catch (\Throwable) {
             return '';
@@ -186,17 +223,14 @@ class IndexPageListener
     }
 
     /**
-     * Bereinigt PDF-Text
+     * -------------------------------------
+     * PDF-Text bereinigen
+     * -------------------------------------
      */
     private function cleanPdfContent(string $content): string
     {
-        // UTF-8 normalisieren
         $content = mb_convert_encoding($content, 'UTF-8', 'UTF-8');
-
-        // Steuerzeichen entfernen
         $content = preg_replace('/[\x00-\x1F\x7F]/u', ' ', $content);
-
-        // Whitespaces normalisieren
         $content = preg_replace('/\s+/u', ' ', $content);
 
         return trim($content);
