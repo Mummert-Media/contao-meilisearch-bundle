@@ -7,6 +7,11 @@ use Doctrine\DBAL\Connection;
 
 class IndexPageListener
 {
+    private static bool $shutdownRegistered = false;
+
+    /** @var array<string, array{keywords?:string, imagepath?:string, startDate?:int}> */
+    private static array $queue = [];
+
     private Connection $db;
 
     public function __construct()
@@ -14,10 +19,15 @@ class IndexPageListener
         $this->db = System::getContainer()->get('database_connection');
     }
 
-    public function onIndexPage(string $content, array &$data, array &$set): void
+    public function onIndexPage(string $content, array &$pageData, array &$indexData): void
     {
         if (!str_contains($content, 'MEILISEARCH')) {
             return;
+        }
+
+        // Debug (ohne Crash)
+        if (PHP_SAPI === 'cli') {
+            echo "INDEXPAGE LISTENER ACTIVE: " . ($indexData['url'] ?? '[no url]') . "\n";
         }
 
         $markers = $this->extractMarkers($content);
@@ -25,23 +35,21 @@ class IndexPageListener
             return;
         }
 
-        // URL aus $set (für Crawl vorhanden)
-        $url = $set['url'] ?? null;
+        // priority klappt bei dir schon -> lassen wir direkt im indexData
+        if (isset($markers['event.priority'])) {
+            $indexData['priority'] = (int) $markers['event.priority'];
+        } elseif (isset($markers['news.priority'])) {
+            $indexData['priority'] = (int) $markers['news.priority'];
+        } elseif (isset($markers['page.priority'])) {
+            $indexData['priority'] = (int) $markers['page.priority'];
+        }
+
+        $url = $indexData['url'] ?? null;
         if (!$url) {
             return;
         }
 
-        // priority: event/news > page
-        $priority = null;
-        if (isset($markers['event.priority'])) {
-            $priority = (int) $markers['event.priority'];
-        } elseif (isset($markers['news.priority'])) {
-            $priority = (int) $markers['news.priority'];
-        } elseif (isset($markers['page.priority'])) {
-            $priority = (int) $markers['page.priority'];
-        }
-
-        // keywords kombiniert
+        // keywords kombinieren
         $keywords = [];
         foreach (['event.keywords', 'news.keywords', 'page.keywords'] as $key) {
             if (!empty($markers[$key])) {
@@ -49,10 +57,10 @@ class IndexPageListener
             }
         }
         $keywords = array_values(array_unique(array_filter($keywords)));
-        $keywordsString = $keywords ? implode(' ', $keywords) : null;
+        $keywordsString = $keywords ? implode(' ', $keywords) : '';
 
         // searchimage uuid: event/news > page > custom
-        $imageUuid = null;
+        $imageUuid = '';
         foreach (['event.searchimage', 'news.searchimage', 'page.searchimage', 'custom.searchimage'] as $key) {
             if (!empty($markers[$key])) {
                 $imageUuid = trim($markers[$key]);
@@ -60,8 +68,8 @@ class IndexPageListener
             }
         }
 
-        // startDate (timestamp)
-        $startDate = null;
+        // startDate
+        $startDate = 0;
         foreach (['event.date', 'news.date'] as $key) {
             if (!empty($markers[$key])) {
                 $ts = strtotime(trim($markers[$key]));
@@ -72,39 +80,37 @@ class IndexPageListener
             }
         }
 
-        // Nichts zu schreiben? Dann raus.
-        if ($priority === null && $keywordsString === null && $imageUuid === null && $startDate === null) {
-            return;
-        }
+        // In Queue legen (Core überschreibt später, wir schreiben am Ende final in tl_search)
+        self::$queue[$url] = [
+            'keywords'  => $keywordsString,
+            'imagepath' => $imageUuid,
+            'startDate' => $startDate,
+        ];
 
-        // ✅ DB-Update (tl_search) anhand der URL
-        $update = [];
-        $params = ['url' => $url];
-        $types  = [];
+        // Shutdown einmalig registrieren
+        if (!self::$shutdownRegistered) {
+            self::$shutdownRegistered = true;
 
-        if ($priority !== null) {
-            $update['priority'] = ':priority';
-            $params['priority'] = $priority;
-        }
-        if ($keywordsString !== null) {
-            $update['keywords'] = ':keywords';
-            $params['keywords'] = $keywordsString;
-        }
-        if ($imageUuid !== null) {
-            $update['imagepath'] = ':imagepath';
-            $params['imagepath'] = $imageUuid;
-        }
-        if ($startDate !== null) {
-            $update['startDate'] = ':startDate';
-            $params['startDate'] = $startDate;
-        }
+            register_shutdown_function(function (): void {
+                $db = System::getContainer()->get('database_connection');
 
-        $setSql = implode(', ', array_map(fn($col, $ph) => "$col = $ph", array_keys($update), $update));
-
-        $this->db->executeStatement(
-            "UPDATE tl_search SET $setSql WHERE url = :url",
-            $params
-        );
+                foreach (self::$queue as $url => $values) {
+                    $db->executeStatement(
+                        'UPDATE tl_search
+                         SET keywords = :keywords,
+                             imagepath = :imagepath,
+                             startDate = :startDate
+                         WHERE url = :url',
+                        [
+                            'keywords'  => $values['keywords'] ?? '',
+                            'imagepath' => $values['imagepath'] ?? '',
+                            'startDate' => $values['startDate'] ?? 0,
+                            'url'       => $url,
+                        ]
+                    );
+                }
+            });
+        }
     }
 
     private function extractMarkers(string $content): array
