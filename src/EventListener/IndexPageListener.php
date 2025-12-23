@@ -6,19 +6,25 @@ class IndexPageListener
 {
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
-        if (PHP_SAPI === 'cli') {
+        $isCli = (PHP_SAPI === 'cli');
+
+        if ($isCli) {
             echo "\n=============================\n";
             echo "INDEXPAGE HOOK START\n";
             echo "URL: " . ($set['url'] ?? '[no url]') . "\n";
         }
 
         // --------------------------------------------------
-        // 1. JSON-Marker finden
+        // 1. MEILISEARCH_JSON Kommentar finden
         // --------------------------------------------------
         if (
-            !preg_match('#MEILISEARCH_JSON\s*(\{.*?\})#s', $content, $m)
+            !preg_match(
+                '#<!--\s*MEILISEARCH_JSON\s*(.*?)\s*-->#s',
+                $content,
+                $m
+            )
         ) {
-            if (PHP_SAPI === 'cli') {
+            if ($isCli) {
                 echo "❌ MEILISEARCH_JSON not found\n";
                 echo "INDEXPAGE HOOK END\n";
                 echo "=============================\n";
@@ -26,44 +32,48 @@ class IndexPageListener
             return;
         }
 
-        $meta = json_decode($m[1], true);
+        $json = trim($m[1]);
+        $meta = json_decode($json, true);
 
         if (!is_array($meta)) {
-            if (PHP_SAPI === 'cli') {
+            if ($isCli) {
                 echo "❌ Invalid JSON in MEILISEARCH_JSON\n";
+                echo "RAW JSON:\n$json\n";
+                echo "JSON ERROR: " . json_last_error_msg() . "\n";
                 echo "INDEXPAGE HOOK END\n";
                 echo "=============================\n";
             }
             return;
         }
 
-        if (PHP_SAPI === 'cli') {
+        if ($isCli) {
             echo "✅ MEILISEARCH_JSON parsed\n";
             var_dump($meta);
         }
 
         // --------------------------------------------------
-        // 2. PRIORITY (klar definierte Reihenfolge)
+        // 2. PRIORITY (event > news > page)
         // --------------------------------------------------
-        if (isset($meta['event']['priority'])) {
-            $data['priority'] = (int) $meta['event']['priority'];
-        } elseif (isset($meta['news']['priority'])) {
-            $data['priority'] = (int) $meta['news']['priority'];
-        } elseif (isset($meta['page']['priority'])) {
-            $data['priority'] = (int) $meta['page']['priority'];
+        foreach (['event', 'news', 'page'] as $scope) {
+            if (!empty($meta[$scope]['priority'])) {
+                $data['priority'] = (int) $meta[$scope]['priority'];
+                break;
+            }
         }
 
         // --------------------------------------------------
-        // 3. KEYWORDS
+        // 3. KEYWORDS (zusammenführen)
         // --------------------------------------------------
         $keywords = [];
 
         foreach (['event', 'news', 'page'] as $scope) {
             if (!empty($meta[$scope]['keywords'])) {
-                $keywords = array_merge(
-                    $keywords,
-                    preg_split('/\s+/', trim($meta[$scope]['keywords'])) ?: []
-                );
+                $parts = preg_split(
+                    '/\s+/',
+                    trim((string) $meta[$scope]['keywords'])
+                ) ?: [];
+
+                $keywords = array_merge($keywords, $parts);
             }
         }
 
@@ -72,24 +82,26 @@ class IndexPageListener
         }
 
         // --------------------------------------------------
-        // 4. IMAGEPATH (custom > event > news > page)
+        // 4. IMAGEPATH
+        // Reihenfolge:
+        // event > news > custom > page
         // --------------------------------------------------
         foreach (
             [
+                $meta['event']['searchimage']  ?? null,
+                $meta['news']['searchimage']   ?? null,
                 $meta['custom']['searchimage'] ?? null,
-                $meta['event']['searchimage'] ?? null,
-                $meta['news']['searchimage'] ?? null,
-                $meta['page']['searchimage'] ?? null,
-            ] as $uuid
+                $meta['page']['searchimage']   ?? null,
+            ] as $img
         ) {
-            if ($uuid) {
-                $data['imagepath'] = (string) $uuid;
+            if ($img) {
+                $data['imagepath'] = trim((string) $img);
                 break;
             }
         }
 
         // --------------------------------------------------
-        // 5. STARTDATE
+        // 5. STARTDATE (event > news)
         // --------------------------------------------------
         foreach (['event', 'news'] as $scope) {
             if (!empty($meta[$scope]['date'])) {
@@ -102,9 +114,9 @@ class IndexPageListener
         }
 
         // --------------------------------------------------
-        // DEBUG
+        // 6. DEBUG FINAL
         // --------------------------------------------------
-        if (PHP_SAPI === 'cli') {
+        if ($isCli) {
             echo "---- FINAL \$data ----\n";
             var_dump([
                 'priority'  => $data['priority']  ?? null,
@@ -112,6 +124,13 @@ class IndexPageListener
                 'imagepath' => $data['imagepath'] ?? null,
                 'startDate' => $data['startDate'] ?? null,
             ]);
+
+            echo "---- RAW \$data ----\n";
+            var_dump($data);
+
+            echo "---- RAW \$set ----\n";
+            var_dump($set);
+
             echo "INDEXPAGE HOOK END\n";
             echo "=============================\n";
         }
