@@ -1,12 +1,12 @@
 services:
-  # nur echte PHP-Klassen laden, NICHT Resources
+  # EventListener + Service automatisch laden
   MummertMedia\ContaoMeilisearchBundle\:
     resource: '../../{EventListener,Service}/*'
     autowire: true
     autoconfigure: true
     public: true
 
+  # IndexPageListener als Contao-Hook registrieren
   MummertMedia\ContaoMeilisearchBundle\EventListener\IndexPageListener:
     tags:
       - { name: contao.hook, hook: indexPage, method: onIndexPage }
-
