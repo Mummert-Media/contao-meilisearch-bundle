@@ -10,3 +10,6 @@ services:
     tags:
       - { name: contao.hook, hook: indexPage, method: onIndexPage }
 
+  MummertMedia\ContaoMeilisearchBundle\Service\MeilisearchImageHelper:
+    arguments:
+      $imageStudio: '@contao.image.studio'

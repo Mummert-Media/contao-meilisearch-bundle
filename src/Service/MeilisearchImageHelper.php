@@ -4,12 +4,11 @@ namespace MummertMedia\ContaoMeilisearchBundle\Service;
 
 use Contao\Config;
 use Contao\FilesModel;
-use Contao\Image\Studio;
 
 class MeilisearchImageHelper
 {
     public function __construct(
-        private readonly Studio $imageStudio,
+        private readonly $imageStudio
     ) {}
 
     public function getImagePathFromUuid(string $uuid): ?string
@@ -20,24 +19,25 @@ class MeilisearchImageHelper
             return null;
         }
 
-        $path = $file->path;
-
-        // SVG → niemals skalieren
-        if (str_ends_with(strtolower($path), '.svg')) {
-            return '/' . ltrim($path, '/');
+        // SVG → nicht skalieren
+        if (str_ends_with(strtolower($file->path), '.svg')) {
+            return '/' . ltrim($file->path, '/');
         }
 
         $sizeId = (int) Config::get('meilisearch_imagesize');
 
         if ($sizeId <= 0) {
-            return '/' . ltrim($path, '/');
+            return '/' . ltrim($file->path, '/');
         }
 
         $figure = $this->imageStudio
-            ->createFigure($uuid)
+            ->createFigureBuilder()
+            ->fromUuid($uuid)
             ->setSize($sizeId)
             ->build();
 
-        return $figure?->getImage()?->getSrc() ?? null;
+        $image = $figure->getImage();
+
+        return $image ? $image->getImageSrc() : null;
     }
 }
