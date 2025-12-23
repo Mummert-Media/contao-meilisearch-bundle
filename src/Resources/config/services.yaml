@@ -9,3 +9,6 @@ services:
   MummertMedia\ContaoMeilisearchBundle\EventListener\IndexPageListener:
     tags:
       - { name: contao.hook, hook: indexPage, method: onIndexPage }
+
+  Contao\CoreBundle\Filesystem\FilesystemInterface:
+    alias: filesStorage
