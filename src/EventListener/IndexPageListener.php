@@ -15,22 +15,22 @@ class IndexPageListener
         $debug = (PHP_SAPI === 'cli');
 
         if ($debug) {
-            echo "\n=============================\n";
-            echo "INDEXPAGE LISTENER\n";
-            echo "URL: " . ($set['url'] ?? $data['url'] ?? '[unknown]') . "\n";
+            fwrite(STDERR, "\n=============================\n");
+            fwrite(STDERR, "INDEXPAGE LISTENER\n");
+            fwrite(STDERR, "URL: " . ($set['url'] ?? $data['url'] ?? '[unknown]') . "\n");
         }
 
         // Marker vorhanden?
         if (!str_contains($content, 'MEILISEARCH_JSON')) {
             if ($debug) {
-                echo "❌ MEILISEARCH_JSON not found\n";
-                echo "=============================\n";
+                fwrite(STDERR, "❌ MEILISEARCH_JSON not found\n");
+                fwrite(STDERR, "=============================\n");
             }
             return;
         }
 
         if ($debug) {
-            echo "✔ MEILISEARCH_JSON marker found\n";
+            fwrite(STDERR, "✔ MEILISEARCH_JSON marker found\n");
         }
 
         // JSON aus Kommentar extrahieren + parsen
@@ -38,15 +38,15 @@ class IndexPageListener
 
         if ($parsed === null) {
             if ($debug) {
-                echo "❌ JSON could not be parsed\n";
-                echo "=============================\n";
+                fwrite(STDERR, "❌ JSON could not be parsed\n");
+                fwrite(STDERR, "=============================\n");
             }
             return;
         }
 
         if ($debug) {
-            echo "✔ JSON parsed successfully:\n";
-            print_r($parsed);
+            fwrite(STDERR, "✔ JSON parsed successfully:\n");
+            fwrite(STDERR, print_r($parsed, true));
         }
 
         /*
@@ -63,7 +63,7 @@ class IndexPageListener
             $set['priority'] = (int) $priority;
 
             if ($debug) {
-                echo "✔ priority set to: {$set['priority']}\n";
+                fwrite(STDERR, "✔ priority set to: {$set['priority']}\n");
             }
         }
 
@@ -95,7 +95,7 @@ class IndexPageListener
             $set['keywords'] = implode(' ', array_unique($kw));
 
             if ($debug) {
-                echo "✔ keywords set to: {$set['keywords']}\n";
+                fwrite(STDERR, "✔ keywords set to: {$set['keywords']}\n");
             }
         }
 
@@ -111,30 +111,28 @@ class IndexPageListener
             $parsed['custom']['searchimage'] ?? null;
 
         if ($debug) {
-            echo "Resolved image UUID: ";
-            var_dump($image);
+            fwrite(STDERR, "Resolved image UUID: " . var_export($image, true) . "\n");
         }
 
         if (is_string($image) && $image !== '') {
             if ($debug) {
-                echo "→ Calling MeilisearchImageHelper\n";
+                fwrite(STDERR, "→ Calling MeilisearchImageHelper\n");
             }
 
             $path = $this->imageHelper->getImagePathFromUuid($image);
 
             if ($debug) {
-                echo "← Image helper returned: ";
-                var_dump($path);
+                fwrite(STDERR, "← Image helper returned: " . var_export($path, true) . "\n");
             }
 
             if ($path !== null) {
                 $set['imagepath'] = $path;
 
                 if ($debug) {
-                    echo "✔ imagepath set to: {$set['imagepath']}\n";
+                    fwrite(STDERR, "✔ imagepath set to: {$set['imagepath']}\n");
                 }
             } elseif ($debug) {
-                echo "❌ image helper returned NULL\n";
+                fwrite(STDERR, "❌ image helper returned NULL\n");
             }
         }
 
@@ -148,8 +146,7 @@ class IndexPageListener
             $parsed['news']['date']  ?? null;
 
         if ($debug) {
-            echo "Resolved date: ";
-            var_dump($date);
+            fwrite(STDERR, "Resolved date: " . var_export($date, true) . "\n");
         }
 
         if (is_string($date) && $date !== '') {
@@ -159,22 +156,25 @@ class IndexPageListener
                 $set['startDate'] = $ts;
 
                 if ($debug) {
-                    echo "✔ startDate set to timestamp: {$set['startDate']}\n";
+                    fwrite(STDERR, "✔ startDate set to timestamp: {$set['startDate']}\n");
                 }
             } elseif ($debug) {
-                echo "❌ strtotime failed\n";
+                fwrite(STDERR, "❌ strtotime failed\n");
             }
         }
 
         if ($debug) {
-            echo "---- FINAL \$set ----\n";
-            print_r([
-                'priority'  => $set['priority']  ?? null,
-                'keywords'  => $set['keywords']  ?? null,
-                'imagepath' => $set['imagepath'] ?? null,
-                'startDate' => $set['startDate'] ?? null,
-            ]);
-            echo "=============================\n";
+            fwrite(STDERR, "---- FINAL \$set ----\n");
+            fwrite(
+                STDERR,
+                print_r([
+                    'priority'  => $set['priority']  ?? null,
+                    'keywords'  => $set['keywords']  ?? null,
+                    'imagepath' => $set['imagepath'] ?? null,
+                    'startDate' => $set['startDate'] ?? null,
+                ], true)
+            );
+            fwrite(STDERR, "=============================\n");
         }
     }
 
