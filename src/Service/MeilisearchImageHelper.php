@@ -7,9 +7,12 @@ use Contao\FilesModel;
 
 class MeilisearchImageHelper
 {
-    public function __construct(
-        private readonly $imageStudio
-    ) {}
+    private $imageStudio;
+
+    public function __construct($imageStudio)
+    {
+        $this->imageStudio = $imageStudio;
+    }
 
     public function getImagePathFromUuid(string $uuid): ?string
     {
@@ -19,7 +22,7 @@ class MeilisearchImageHelper
             return null;
         }
 
-        // SVG → nicht skalieren
+        // SVG niemals skalieren
         if (str_ends_with(strtolower($file->path), '.svg')) {
             return '/' . ltrim($file->path, '/');
         }
