@@ -2,14 +2,8 @@
 
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
-use MummertMedia\ContaoMeilisearchBundle\Service\MeilisearchImageHelper;
-
 class IndexPageListener
 {
-    public function __construct(
-        private readonly MeilisearchImageHelper $imageHelper
-    ) {}
-
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
         // Marker vorhanden?
