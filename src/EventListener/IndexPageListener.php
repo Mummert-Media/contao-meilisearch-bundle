@@ -2,19 +2,23 @@
 
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
+use Contao\CoreBundle\DependencyInjection\Attribute\AsHook;
+
+#[AsHook('indexPage')]
 class IndexPageListener
 {
-    public function onIndexPage(string $content, array &$data, array &$set): void
+    public function __invoke(string $content, array $pageData, array &$indexData): void
     {
+        // Debug nur im CLI (Crawler)
         $debug = (PHP_SAPI === 'cli');
 
         if ($debug) {
             echo "\n=============================\n";
             echo "INDEXPAGE HOOK START\n";
-            echo "URL: " . ($set['url'] ?? $data['url'] ?? '[no url]') . "\n";
+            echo "URL: " . ($pageData['url'] ?? '[no url]') . "\n";
         }
 
-        // Marker vorhanden?
+        // 1) Marker finden
         if (!str_contains($content, 'MEILISEARCH_JSON')) {
             if ($debug) {
                 echo "❌ MEILISEARCH_JSON marker NOT found\n";
@@ -24,12 +28,25 @@ class IndexPageListener
             return;
         }
 
-        // JSON aus Kommentar extrahieren + parsen
-        $parsed = $this->extractMeilisearchJson($content);
+        // 2) JSON Block extrahieren
+        $json = $this->extractJsonBlock($content);
 
-        if ($parsed === null) {
+        if ($json === null) {
+            if ($debug) {
+                echo "❌ Could not extract JSON block from MEILISEARCH_JSON\n";
+                echo "INDEXPAGE HOOK END\n";
+                echo "=============================\n";
+            }
+            return;
+        }
+
+        // 3) JSON dekodieren
+        $parsed = json_decode($json, true);
+
+        if (!is_array($parsed)) {
             if ($debug) {
                 echo "❌ Invalid JSON in MEILISEARCH_JSON\n";
+                echo "RAW:\n" . $json . "\n";
                 echo "INDEXPAGE HOOK END\n";
                 echo "=============================\n";
             }
@@ -41,118 +58,76 @@ class IndexPageListener
             var_dump($parsed);
         }
 
-        /*
-         * =====================
-         * PRIORITY (event > news > page)
-         * =====================
-         */
-        $priority =
-            $parsed['event']['priority'] ?? null ??
-            $parsed['news']['priority']  ?? null ??
-            $parsed['page']['priority']  ?? null;
+        // 4) PRIORITY: event > news > page
+        $priority = $parsed['event']['priority']
+            ?? $parsed['news']['priority']
+            ?? $parsed['page']['priority']
+            ?? null;
 
         if ($priority !== null && $priority !== '') {
-            $set['priority'] = (int) $priority;
-            $data['priority'] = (int) $priority; // optional
+            $indexData['priority'] = (int) $priority;
         }
 
-        /*
-         * =====================
-         * KEYWORDS (merge)
-         * =====================
-         */
-        $keywordSources = [
-            $parsed['event']['keywords'] ?? null,
-            $parsed['news']['keywords']  ?? null,
-            $parsed['page']['keywords']  ?? null,
-        ];
-
-        $kw = [];
-        foreach ($keywordSources as $s) {
-            if (!is_string($s) || trim($s) === '') {
-                continue;
-            }
-
-            $parts = preg_split('/\s+/', trim($s)) ?: [];
-            foreach ($parts as $p) {
-                $p = trim($p);
-                if ($p !== '') {
-                    $kw[] = $p;
-                }
+        // 5) KEYWORDS: event + news + page zusammenführen
+        $kwParts = [];
+        foreach (['event', 'news', 'page'] as $scope) {
+            if (!empty($parsed[$scope]['keywords'])) {
+                $kwParts[] = (string) $parsed[$scope]['keywords'];
             }
         }
 
-        if ($kw) {
-            $kw = array_values(array_unique($kw));
-            $set['keywords'] = implode(' ', $kw);
-            $data['keywords'] = $set['keywords']; // optional
+        if ($kwParts) {
+            $all = preg_split('/\s+/', trim(implode(' ', $kwParts))) ?: [];
+            $all = array_values(array_unique(array_filter($all)));
+            if ($all) {
+                $indexData['keywords'] = implode(' ', $all);
+            }
         }
 
-        /*
-         * =====================
-         * IMAGEPATH (event > news > page > custom)
-         * =====================
-         */
-        $image =
-            $parsed['event']['searchimage'] ?? null ??
-            $parsed['news']['searchimage']  ?? null ??
-            $parsed['page']['searchimage']  ?? null ??
-            $parsed['custom']['searchimage'] ?? null;
+        // 6) IMAGEPATH: custom > event > news > page
+        $image = $parsed['custom']['searchimage']
+            ?? $parsed['event']['searchimage']
+            ?? $parsed['news']['searchimage']
+            ?? $parsed['page']['searchimage']
+            ?? null;
 
-        if (is_string($image) && $image !== '') {
-            $set['imagepath'] = trim($image);
-            $data['imagepath'] = $set['imagepath']; // optional
+        if (!empty($image)) {
+            $indexData['imagepath'] = trim((string) $image);
         }
 
-        /*
-         * =====================
-         * STARTDATE (event.date/news.date => timestamp)
-         * =====================
-         */
-        $date =
-            $parsed['event']['date'] ?? null ??
-            $parsed['news']['date']  ?? null;
-
-        if (is_string($date) && $date !== '') {
-            $ts = strtotime($date);
+        // 7) STARTDATE: event.date oder news.date -> timestamp
+        $date = $parsed['event']['date'] ?? $parsed['news']['date'] ?? null;
+        if (!empty($date)) {
+            $ts = strtotime((string) $date);
             if ($ts !== false) {
-                $set['startDate'] = $ts;
-                $data['startDate'] = $ts; // optional
+                $indexData['startDate'] = $ts;
             }
         }
 
         if ($debug) {
-            echo "---- FINAL \$set (what should be persisted) ----\n";
+            echo "---- FINAL \$indexData (what should be persisted) ----\n";
             var_dump([
-                'priority'  => $set['priority']  ?? null,
-                'keywords'  => $set['keywords']  ?? null,
-                'imagepath' => $set['imagepath'] ?? null,
-                'startDate' => $set['startDate'] ?? null,
+                'priority'  => $indexData['priority']  ?? null,
+                'keywords'  => $indexData['keywords']  ?? null,
+                'imagepath' => $indexData['imagepath'] ?? null,
+                'startDate' => $indexData['startDate'] ?? null,
             ]);
-
             echo "INDEXPAGE HOOK END\n";
             echo "=============================\n";
         }
     }
 
-    private function extractMeilisearchJson(string $content): ?array
+    private function extractJsonBlock(string $content): ?string
     {
-        // Erwartetes Format:
+        // Nimmt alles zwischen:
         // <!--
         // MEILISEARCH_JSON
-        // { ...json... }
+        // { ... }
         // -->
         if (!preg_match('/<!--\s*MEILISEARCH_JSON\s*(\{.*?\})\s*-->/s', $content, $m)) {
             return null;
         }
 
-        $json = trim($m[1]);
-
-        // BOM / Sonderzeichen am Anfang killen (kommt manchmal beim Copy/Paste vor)
-        $json = preg_replace('/^\xEF\xBB\xBF/', '', $json);
-
-        $data = json_decode($json, true);
-
-        return is_array($data) ? $data : null;
+        return trim($m[1]);
     }
 }
