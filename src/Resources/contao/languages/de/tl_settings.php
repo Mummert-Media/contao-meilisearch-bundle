@@ -18,3 +18,9 @@ $GLOBALS['TL_LANG']['tl_settings']['meilisearch_fallback_image'] = [
     'Fallback-Bild für die Suche',
     'Dieses Bild wird verwendet, wenn für eine Seite, News oder ein Event kein Suchbild gesetzt ist.',
 ];
+
+$GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_past_events'][0]
+    = 'Abgelaufene Events indexieren';
+
+$GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_past_events'][1]
+    = 'Vergangene Kalender-Events werden ebenfalls in Meilisearch indexiert.';

@@ -52,6 +52,13 @@ $GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_imagesize'] = [
     ],
 ];
 
+$GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_index_past_events'] = [
+    'inputType' => 'checkbox',
+    'eval'      => [
+        'tl_class' => 'w50 clr',
+    ],
+];
+
 $GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_fallback_image'] = [
     'inputType' => 'fileTree',
     'eval' => [
@@ -72,4 +79,5 @@ PaletteManipulator::create()
     ->addField('meilisearch_api', 'meilisearch_legend')
     ->addField('meilisearch_imagesize', 'meilisearch_legend')
     ->addField('meilisearch_fallback_image', 'meilisearch_legend')
+    ->addField('meilisearch_index_past_events', 'meilisearch_legend')
     ->applyToPalette('default', 'tl_settings');
