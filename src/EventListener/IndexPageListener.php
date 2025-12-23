@@ -72,7 +72,7 @@ class IndexPageListener
             $parsed['custom']['searchimage'] ?? null;
 
         if (is_string($image) && $image !== '') {
-            $set['searchImage'] = trim($image);
+            $set['imagepath'] = trim($image);
         }
 
         /*

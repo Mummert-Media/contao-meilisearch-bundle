@@ -19,7 +19,7 @@ $GLOBALS['TL_DCA']['tl_search']['fields']['priority'] = [
     'sql'       => "int(1) NOT NULL default '2'",
 ];
 
-$GLOBALS['TL_DCA']['tl_search']['fields']['searchImage'] = [
+$GLOBALS['TL_DCA']['tl_search']['fields']['imagepath'] = [
     'label'     => ['Suchbild', 'UUID des Suchbildes'],
     'exclude'   => true,
     'inputType' => 'text',
