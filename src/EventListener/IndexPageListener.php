@@ -2,32 +2,13 @@
 
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
-use Contao\System;
-use Doctrine\DBAL\Connection;
-
 class IndexPageListener
 {
-    private static bool $shutdownRegistered = false;
-
-    /** @var array<string, array{keywords?:string, imagepath?:string, startDate?:int}> */
-    private static array $queue = [];
-
-    private Connection $db;
-
-    public function __construct()
+    public function onIndexPage(string $content, array &$data, array &$set): void
     {
-        $this->db = System::getContainer()->get('database_connection');
-    }
-
-    public function onIndexPage(string $content, array &$pageData, array &$indexData): void
-    {
+        // Nur reagieren, wenn unser Marker existiert
         if (!str_contains($content, 'MEILISEARCH')) {
             return;
-        }
-
-        // Debug (ohne Crash)
-        if (PHP_SAPI === 'cli') {
-            echo "INDEXPAGE LISTENER ACTIVE: " . ($indexData['url'] ?? '[no url]') . "\n";
         }
 
         $markers = $this->extractMarkers($content);
@@ -35,98 +16,96 @@ class IndexPageListener
             return;
         }
 
-        // priority klappt bei dir schon -> lassen wir direkt im indexData
+        /*
+         * =====================
+         * PRIORITY
+         * event/news > page
+         * =====================
+         */
         if (isset($markers['event.priority'])) {
-            $indexData['priority'] = (int) $markers['event.priority'];
+            $data['priority'] = (int) $markers['event.priority'];
         } elseif (isset($markers['news.priority'])) {
-            $indexData['priority'] = (int) $markers['news.priority'];
+            $data['priority'] = (int) $markers['news.priority'];
         } elseif (isset($markers['page.priority'])) {
-            $indexData['priority'] = (int) $markers['page.priority'];
+            $data['priority'] = (int) $markers['page.priority'];
         }
 
-        $url = $indexData['url'] ?? null;
-        if (!$url) {
-            return;
-        }
-
-        // keywords kombinieren
+        /*
+         * =====================
+         * KEYWORDS (kombiniert)
+         * =====================
+         */
         $keywords = [];
+
         foreach (['event.keywords', 'news.keywords', 'page.keywords'] as $key) {
             if (!empty($markers[$key])) {
-                $keywords = array_merge($keywords, preg_split('/\s+/', trim($markers[$key])) ?: []);
+                $keywords = array_merge(
+                    $keywords,
+                    preg_split('/\s+/', trim($markers[$key])) ?: []
+                );
             }
         }
-        $keywords = array_values(array_unique(array_filter($keywords)));
-        $keywordsString = $keywords ? implode(' ', $keywords) : '';
 
-        // searchimage uuid: event/news > page > custom
-        $imageUuid = '';
-        foreach (['event.searchimage', 'news.searchimage', 'page.searchimage', 'custom.searchimage'] as $key) {
+        if ($keywords !== []) {
+            $data['keywords'] = implode(' ', array_unique($keywords));
+        }
+
+        /*
+         * =====================
+         * SEARCH IMAGE
+         * WICHTIG:
+         * -> Key heißt "image", NICHT "imagepath"
+         * =====================
+         */
+        foreach (
+            ['event.searchimage', 'news.searchimage', 'page.searchimage', 'custom.searchimage']
+            as $key
+        ) {
             if (!empty($markers[$key])) {
-                $imageUuid = trim($markers[$key]);
+                $data['image'] = trim($markers[$key]); // UUID
                 break;
             }
         }
 
-        // startDate
-        $startDate = 0;
+        /*
+         * =====================
+         * START DATE
+         * WICHTIG:
+         * -> Key heißt "startdate" (lowercase)
+         * =====================
+         */
         foreach (['event.date', 'news.date'] as $key) {
             if (!empty($markers[$key])) {
-                $ts = strtotime(trim($markers[$key]));
+                $ts = strtotime($markers[$key]);
                 if ($ts !== false) {
-                    $startDate = (int) $ts;
+                    $data['startdate'] = $ts;
                 }
                 break;
             }
-        }
-
-        // In Queue legen (Core überschreibt später, wir schreiben am Ende final in tl_search)
-        self::$queue[$url] = [
-            'keywords'  => $keywordsString,
-            'imagepath' => $imageUuid,
-            'startDate' => $startDate,
-        ];
-
-        // Shutdown einmalig registrieren
-        if (!self::$shutdownRegistered) {
-            self::$shutdownRegistered = true;
-
-            register_shutdown_function(function (): void {
-                $db = System::getContainer()->get('database_connection');
-
-                foreach (self::$queue as $url => $values) {
-                    $db->executeStatement(
-                        'UPDATE tl_search
-                         SET keywords = :keywords,
-                             imagepath = :imagepath,
-                             startDate = :startDate
-                         WHERE url = :url',
-                        [
-                            'keywords'  => $values['keywords'] ?? '',
-                            'imagepath' => $values['imagepath'] ?? '',
-                            'startDate' => $values['startDate'] ?? 0,
-                            'url'       => $url,
-                        ]
-                    );
-                }
-            });
         }
     }
 
+    /**
+     * Liest die MEILISEARCH-Kommentare aus dem HTML
+     */
     private function extractMarkers(string $content): array
     {
-        if (!preg_match('/<!--\s*MEILISEARCH(.*?)-->/s', $content, $m)) {
+        if (!preg_match('/<!--\s*MEILISEARCH(.*?)-->/s', $content, $match)) {
             return [];
         }
 
         $markers = [];
-        foreach (preg_split('/\R/', trim($m[1])) ?: [] as $line) {
+        $lines = preg_split('/\R/', trim($match[1])) ?: [];
+
+        foreach ($lines as $line) {
             $line = trim($line);
+
             if ($line === '' || !str_contains($line, '=')) {
                 continue;
             }
-            [$k, $v] = explode('=', $line, 2);
-            $markers[trim($k)] = trim($v);
+
+            [$key, $value] = explode('=', $line, 2);
+            $markers[trim($key)] = trim($value);
         }
 
         return $markers;
