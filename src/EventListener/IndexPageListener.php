@@ -2,65 +2,54 @@
 
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
-use Contao\System;
-use Doctrine\DBAL\Connection;
-
 class IndexPageListener
 {
-    private static bool $shutdownRegistered = false;
-
-    /** @var array<string, array{priority?:int, keywords?:string, imagepath?:string, startDate?:int}> */
-    private static array $queue = [];
-
-    private Connection $db;
-
-    public function __construct()
-    {
-        $this->db = System::getContainer()->get('database_connection');
-    }
-
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
-        if (!str_contains($content, 'MEILISEARCH')) {
-            return;
-        }
-
-        $markers = $this->extractMarkers($content);
-        if ($markers === []) {
-            return;
-        }
-
-        // Debug ohne Risiko
         if (PHP_SAPI === 'cli') {
-            echo "INDEXPAGE LISTENER ACTIVE: " . ($set['url'] ?? '[no url]') . "\n";
+            echo "\n=============================\n";
+            echo "INDEXPAGE HOOK START\n";
+            echo "URL: " . ($set['url'] ?? '[no url]') . "\n";
         }
 
-        // Wir updaten final über checksum (stabil, egal ob URL mit/ohne Domain)
-        $checksum = $data['checksum'] ?? null;
-        if (!$checksum) {
+        // 1. Marker vorhanden?
+        if (!str_contains($content, 'MEILISEARCH')) {
+            if (PHP_SAPI === 'cli') {
+                echo "❌ MEILISEARCH marker NOT found in content\n";
+            }
             return;
         }
 
-        /*
-         * PRIORITY: event/news > page
-         */
-        $priority = null;
+        if (PHP_SAPI === 'cli') {
+            echo "✅ MEILISEARCH marker found\n";
+        }
+
+        // 2. Marker extrahieren
+        $markers = $this->extractMarkers($content);
+
+        if (PHP_SAPI === 'cli') {
+            echo "---- PARSED MARKERS ----\n";
+            var_dump($markers);
+            echo "------------------------\n";
+        }
+
+        if ($markers === []) {
+            if (PHP_SAPI === 'cli') {
+                echo "❌ Marker array EMPTY after parsing\n";
+            }
+            return;
+        }
+
+        // 3. PRIORITY
         if (isset($markers['event.priority'])) {
-            $priority = (int) $markers['event.priority'];
+            $data['priority'] = (int) $markers['event.priority'];
         } elseif (isset($markers['news.priority'])) {
-            $priority = (int) $markers['news.priority'];
+            $data['priority'] = (int) $markers['news.priority'];
         } elseif (isset($markers['page.priority'])) {
-            $priority = (int) $markers['page.priority'];
+            $data['priority'] = (int) $markers['page.priority'];
         }
 
-        if ($priority !== null) {
-            $data['priority'] = $priority;     // bleibt bei dir schon stehen
-            $set['priority']  = $priority;     // harmless, aber konsistent
-        }
-
-        /*
-         * KEYWORDS: kombinieren
-         */
+        // 4. KEYWORDS
         $keywords = [];
         foreach (['event.keywords', 'news.keywords', 'page.keywords'] as $key) {
             if (!empty($markers[$key])) {
@@ -71,80 +60,50 @@ class IndexPageListener
             }
         }
 
-        $keywords = array_values(array_unique(array_filter($keywords)));
-        $keywordsString = $keywords ? implode(' ', $keywords) : '';
+        if ($keywords) {
+            $data['keywords'] = implode(' ', array_unique($keywords));
+        }
 
-        // Wichtig: in $set setzen, weil Contao später oft nochmal keywords finalisiert
-        $set['keywords'] = $keywordsString;
-
-        /*
-         * IMAGEPATH (UUID): event/news > page > custom
-         */
-        $imageUuid = '';
-        foreach (['event.searchimage', 'news.searchimage', 'page.searchimage', 'custom.searchimage'] as $key) {
+        // 5. IMAGEPATH
+        foreach (
+            ['event.searchimage', 'news.searchimage', 'page.searchimage', 'custom.searchimage']
+            as $key
+        ) {
             if (!empty($markers[$key])) {
-                $imageUuid = trim($markers[$key]);
+                $data['imagepath'] = trim($markers[$key]);
                 break;
             }
         }
 
-        // Ebenso: in $set setzen (damit es nicht überschrieben wird)
-        $set['imagepath'] = $imageUuid;
-
-        /*
-         * STARTDATE (Timestamp)
-         */
-        $startDate = 0;
+        // 6. STARTDATE
         foreach (['event.date', 'news.date'] as $key) {
             if (!empty($markers[$key])) {
-                $ts = strtotime(trim($markers[$key]));
+                $ts = strtotime($markers[$key]);
                 if ($ts !== false) {
-                    $startDate = (int) $ts;
+                    $data['startDate'] = $ts;
                 }
                 break;
             }
         }
 
-        $set['startDate'] = $startDate;
+        // 7. FINAL STATE
+        if (PHP_SAPI === 'cli') {
+            echo "---- FINAL \$data ----\n";
+            var_dump([
+                'priority'  => $data['priority']  ?? null,
+                'keywords'  => $data['keywords']  ?? null,
+                'imagepath' => $data['imagepath'] ?? null,
+                'startDate' => $data['startDate'] ?? null,
+            ]);
 
-        /*
-         * Sicherheitsnetz: am Ende definitiv in tl_search schreiben
-         */
-        self::$queue[$checksum] = [
-            'priority'  => $priority,
-            'keywords'  => $keywordsString,
-            'imagepath' => $imageUuid,
-            'startDate' => $startDate,
-        ];
+            echo "---- RAW \$data ----\n";
+            var_dump($data);
 
-        if (!self::$shutdownRegistered) {
-            self::$shutdownRegistered = true;
+            echo "---- RAW \$set ----\n";
+            var_dump($set);
 
-            register_shutdown_function(function (): void {
-                $db = System::getContainer()->get('database_connection');
-
-                foreach (self::$queue as $checksum => $values) {
-                    $params = ['checksum' => $checksum];
-                    $sets   = [];
-
-                    if (array_key_exists('priority', $values) && $values['priority'] !== null) {
-                        $sets[] = 'priority = :priority';
-                        $params['priority'] = $values['priority'];
-                    }
-
-                    $sets[] = 'keywords = :keywords';
-                    $params['keywords'] = $values['keywords'] ?? '';
-
-                    $sets[] = 'imagepath = :imagepath';
-                    $params['imagepath'] = $values['imagepath'] ?? '';
-
-                    $sets[] = 'startDate = :startDate';
-                    $params['startDate'] = $values['startDate'] ?? 0;
-
-                    $sql = 'UPDATE tl_search SET ' . implode(', ', $sets) . ' WHERE checksum = :checksum';
-                    $db->executeStatement($sql, $params);
-                }
-            });
+            echo "INDEXPAGE HOOK END\n";
+            echo "=============================\n";
         }
     }
 
@@ -155,9 +114,8 @@ class IndexPageListener
         }
 
         $markers = [];
-        foreach (preg_split('/\R/', trim($m[1])) ?: [] as $line) {
-            $line = trim($line);
-            if ($line === '' || !str_contains($line, '=')) {
+        foreach (preg_split('/\R/', trim($m[1])) as $line) {
+            if (!str_contains($line, '=')) {
                 continue;
             }
             [$k, $v] = explode('=', $line, 2);
