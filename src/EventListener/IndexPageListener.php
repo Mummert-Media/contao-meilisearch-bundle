@@ -2,30 +2,24 @@
 
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
-use Contao\Database;
-
 class IndexPageListener
 {
-    public function onIndexPage(array &$data, array $set, array $page): void
+    public function onIndexPage(string $content, array &$data, array &$set): void
     {
-        // --------------------------------------------------
-        // DEBUG START
-        // --------------------------------------------------
         if (PHP_SAPI === 'cli') {
             echo "\n=============================\n";
             echo "INDEXPAGE HOOK START\n";
-            echo "URL: {$set['url']}\n";
+            echo "URL: " . ($set['url'] ?? '[no url]') . "\n";
         }
 
         // --------------------------------------------------
-        // 1. MEILISEARCH_JSON aus HTML extrahieren
+        // 1. JSON-Marker finden
         // --------------------------------------------------
         if (
-            !isset($set['content']) ||
-            !preg_match('#MEILISEARCH_JSON\s*(\{.*?\})#s', $set['content'], $m)
+            !preg_match('#MEILISEARCH_JSON\s*(\{.*?\})#s', $content, $m)
         ) {
             if (PHP_SAPI === 'cli') {
-                echo "❌ Kein MEILISEARCH_JSON gefunden\n";
+                echo "❌ MEILISEARCH_JSON not found\n";
                 echo "INDEXPAGE HOOK END\n";
                 echo "=============================\n";
             }
@@ -36,7 +30,7 @@ class IndexPageListener
 
         if (!is_array($meta)) {
             if (PHP_SAPI === 'cli') {
-                echo "❌ MEILISEARCH_JSON ist kein valides JSON\n";
+                echo "❌ Invalid JSON in MEILISEARCH_JSON\n";
                 echo "INDEXPAGE HOOK END\n";
                 echo "=============================\n";
             }
@@ -44,91 +38,80 @@ class IndexPageListener
         }
 
         if (PHP_SAPI === 'cli') {
-            echo "✅ MEILISEARCH_JSON gefunden\n";
-            echo "---- RAW JSON ----\n";
+            echo "✅ MEILISEARCH_JSON parsed\n";
             var_dump($meta);
-            echo "------------------\n";
         }
 
         // --------------------------------------------------
-        // 2. Sauberes Mapping (klar definierte Priorität)
+        // 2. PRIORITY (klar definierte Reihenfolge)
         // --------------------------------------------------
-        $priority =
-            $meta['event']['priority']
-            ?? $meta['news']['priority']
-            ?? $meta['page']['priority']
-            ?? null;
-
-        $keywords =
-            $meta['event']['keywords']
-            ?? $meta['news']['keywords']
-            ?? $meta['page']['keywords']
-            ?? null;
-
-        $imagepath =
-            $meta['custom']['searchimage']
-            ?? $meta['event']['searchimage']
-            ?? $meta['news']['searchimage']
-            ?? $meta['page']['searchimage']
-            ?? null;
-
-        $startDate =
-            $meta['event']['date']
-            ?? $meta['news']['date']
-            ?? null;
-
-        // --------------------------------------------------
-        // 3. Daten vorbereiten
-        // --------------------------------------------------
-        $update = [];
-
-        if ($priority !== null) {
-            $update['priority'] = (int) $priority;
+        if (isset($meta['event']['priority'])) {
+            $data['priority'] = (int) $meta['event']['priority'];
+        } elseif (isset($meta['news']['priority'])) {
+            $data['priority'] = (int) $meta['news']['priority'];
+        } elseif (isset($meta['page']['priority'])) {
+            $data['priority'] = (int) $meta['page']['priority'];
         }
 
-        if ($keywords !== null) {
-            $update['keywords'] = trim((string) $keywords);
-        }
+        // --------------------------------------------------
+        // 3. KEYWORDS
+        // --------------------------------------------------
+        $keywords = [];
 
-        if ($imagepath !== null) {
-            $update['imagepath'] = (string) $imagepath;
-        }
-
-        if ($startDate !== null) {
-            // ISO-Datum → UNIX-Timestamp
-            $ts = strtotime($startDate);
-            if ($ts !== false) {
-                $update['startDate'] = $ts;
+        foreach (['event', 'news', 'page'] as $scope) {
+            if (!empty($meta[$scope]['keywords'])) {
+                $keywords = array_merge(
+                    $keywords,
+                    preg_split('/\s+/', trim($meta[$scope]['keywords'])) ?: []
+                );
             }
         }
 
-        if (PHP_SAPI === 'cli') {
-            echo "---- FINAL UPDATE ----\n";
-            var_dump($update);
-            echo "----------------------\n";
+        if ($keywords) {
+            $data['keywords'] = implode(' ', array_unique($keywords));
         }
 
-        if (!$update) {
-            if (PHP_SAPI === 'cli') {
-                echo "ℹ️ Keine Felder zu aktualisieren\n";
-                echo "INDEXPAGE HOOK END\n";
-                echo "=============================\n";
+        // --------------------------------------------------
+        // 4. IMAGEPATH (custom > event > news > page)
+        // --------------------------------------------------
+        foreach (
+            [
+                $meta['custom']['searchimage'] ?? null,
+                $meta['event']['searchimage'] ?? null,
+                $meta['news']['searchimage'] ?? null,
+                $meta['page']['searchimage'] ?? null,
+            ] as $uuid
+        ) {
+            if ($uuid) {
+                $data['imagepath'] = (string) $uuid;
+                break;
             }
-            return;
         }
 
         // --------------------------------------------------
-        // 4. tl_search aktualisieren
+        // 5. STARTDATE
         // --------------------------------------------------
-        Database::getInstance()
-            ->prepare(
-                'UPDATE tl_search %s WHERE url=?'
-            )
-            ->set($update)
-            ->execute($set['url']);
+        foreach (['event', 'news'] as $scope) {
+            if (!empty($meta[$scope]['date'])) {
+                $ts = strtotime($meta[$scope]['date']);
+                if ($ts !== false) {
+                    $data['startDate'] = $ts;
+                }
+                break;
+            }
+        }
 
+        // --------------------------------------------------
+        // DEBUG
+        // --------------------------------------------------
         if (PHP_SAPI === 'cli') {
-            echo "✅ tl_search aktualisiert\n";
+            echo "---- FINAL \$data ----\n";
+            var_dump([
+                'priority'  => $data['priority']  ?? null,
+                'keywords'  => $data['keywords']  ?? null,
+                'imagepath' => $data['imagepath'] ?? null,
+                'startDate' => $data['startDate'] ?? null,
+            ]);
             echo "INDEXPAGE HOOK END\n";
             echo "=============================\n";
         }
