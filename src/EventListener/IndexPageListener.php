@@ -2,23 +2,8 @@
 
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
-use Contao\System;
-use MummertMedia\ContaoMeilisearchBundle\Service\MeilisearchImageHelper;
-
 class IndexPageListener
 {
-    private ?MeilisearchImageHelper $imageHelper = null;
-
-    private function getImageHelper(): MeilisearchImageHelper
-    {
-        if ($this->imageHelper === null) {
-            $this->imageHelper = System::getContainer()
-                ->get(MeilisearchImageHelper::class);
-        }
-
-        return $this->imageHelper;
-    }
-
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
         // Marker vorhanden?
@@ -26,13 +11,17 @@ class IndexPageListener
             return;
         }
 
+        // JSON aus Kommentar extrahieren + parsen
         $parsed = $this->extractMeilisearchJson($content);
+
         if ($parsed === null) {
             return;
         }
 
         /*
-         * PRIORITY
+         * =====================
+         * PRIORITY (event > news > page)
+         * =====================
          */
         $priority =
             $parsed['event']['priority'] ?? null ??
@@ -44,19 +33,25 @@ class IndexPageListener
         }
 
         /*
-         * KEYWORDS
+         * =====================
+         * KEYWORDS (merge)
+         * =====================
          */
+        $keywordSources = [
+            $parsed['event']['keywords'] ?? null,
+            $parsed['news']['keywords']  ?? null,
+            $parsed['page']['keywords']  ?? null,
+        ];
+
         $kw = [];
-        foreach ([
-                     $parsed['event']['keywords'] ?? null,
-                     $parsed['news']['keywords']  ?? null,
-                     $parsed['page']['keywords']  ?? null,
-                 ] as $s) {
-            if (is_string($s)) {
-                foreach (preg_split('/\s+/', trim($s)) as $p) {
-                    if ($p !== '') {
-                        $kw[] = $p;
-                    }
+        foreach ($keywordSources as $s) {
+            if (!is_string($s) || trim($s) === '') {
+                continue;
+            }
+
+            foreach (preg_split('/\s+/', trim($s)) ?: [] as $p) {
+                if ($p !== '') {
+                    $kw[] = $p;
                 }
             }
         }
@@ -66,7 +61,9 @@ class IndexPageListener
         }
 
         /*
-         * IMAGEPATH
+         * =====================
+         * IMAGEPATH (event > news > page > custom)
+         * =====================
          */
         $image =
             $parsed['event']['searchimage'] ?? null ??
@@ -75,20 +72,19 @@ class IndexPageListener
             $parsed['custom']['searchimage'] ?? null;
 
         if (is_string($image) && $image !== '') {
-            $path = $this->getImageHelper()->getImagePathFromUuid($image);
-            if ($path !== null) {
-                $set['imagepath'] = $path;
-            }
+            $set['imagepath'] = trim($image);
         }
 
         /*
-         * STARTDATE
+         * =====================
+         * STARTDATE (event.date/news.date => timestamp)
+         * =====================
          */
         $date =
             $parsed['event']['date'] ?? null ??
             $parsed['news']['date']  ?? null;
 
-        if (is_string($date)) {
+        if (is_string($date) && $date !== '') {
             $ts = strtotime($date);
             if ($ts !== false) {
                 $set['startDate'] = $ts;
