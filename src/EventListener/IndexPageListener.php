@@ -6,23 +6,31 @@ class IndexPageListener
 {
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
+        // Schneller Exit, wenn kein Marker existiert
         if (!str_contains($content, 'MEILISEARCH')) {
             return;
         }
 
         $markers = $this->extractMarkers($content);
+        if ($markers === []) {
+            return;
+        }
 
         /*
          * =====================
          * PRIORITY
+         * event/news > page
          * =====================
          */
         if (isset($markers['event.priority'])) {
             $data['priority'] = (int) $markers['event.priority'];
+            $set['priority'] = true;
         } elseif (isset($markers['news.priority'])) {
             $data['priority'] = (int) $markers['news.priority'];
+            $set['priority'] = true;
         } elseif (isset($markers['page.priority'])) {
             $data['priority'] = (int) $markers['page.priority'];
+            $set['priority'] = true;
         }
 
         /*
@@ -34,31 +42,27 @@ class IndexPageListener
 
         foreach (['event.keywords', 'news.keywords', 'page.keywords'] as $key) {
             if (!empty($markers[$key])) {
-                $parts = preg_split('/\s+/', trim($markers[$key]));
+                $parts = preg_split('/\s+/', trim($markers[$key])) ?: [];
                 $keywords = array_merge($keywords, $parts);
             }
         }
 
         if ($keywords !== []) {
-            $keywords = array_unique($keywords);
+            $keywords = array_values(array_unique(array_filter($keywords)));
             $data['keywords'] = implode(' ', $keywords);
+            $set['keywords'] = true;
         }
 
         /*
          * =====================
          * SEARCH IMAGE (UUID)
+         * event/news > page > custom
          * =====================
          */
-        foreach (
-            [
-                'event.searchimage',
-                'news.searchimage',
-                'page.searchimage',
-                'custom.searchimage',
-            ] as $key
-        ) {
+        foreach (['event.searchimage', 'news.searchimage', 'page.searchimage', 'custom.searchimage'] as $key) {
             if (!empty($markers[$key])) {
-                $data['imagepath'] = $markers[$key];
+                $data['imagepath'] = trim($markers[$key]);   // vorerst nur UUID
+                $set['imagepath'] = true;
                 break;
             }
         }
@@ -70,27 +74,27 @@ class IndexPageListener
          */
         foreach (['event.date', 'news.date'] as $key) {
             if (!empty($markers[$key])) {
-                $timestamp = strtotime($markers[$key]);
-                if ($timestamp !== false) {
-                    $data['startdate'] = $timestamp;
+                $ts = strtotime(trim($markers[$key]));
+                if ($ts !== false) {
+                    $data['startDate'] = $ts;
+                    $set['startDate'] = true;
                 }
                 break;
             }
         }
     }
 
-    /**
-     * Extrahiert MEILISEARCH Marker aus HTML-Kommentar
-     */
     private function extractMarkers(string $content): array
     {
-        if (!preg_match('/<!--\s*MEILISEARCH(.*?)-->/s', $content, $match)) {
+        // Kommentarblock isolieren
+        if (!preg_match('/<!--\s*MEILISEARCH(.*?)-->/s', $content, $m)) {
             return [];
         }
 
-        $lines = preg_split('/\R/', trim($match[1]));
-        $markers = [];
+        $block = trim($m[1]);
+        $lines = preg_split('/\R/', $block) ?: [];
 
+        $markers = [];
         foreach ($lines as $line) {
             $line = trim($line);
 
@@ -98,8 +102,8 @@ class IndexPageListener
                 continue;
             }
 
-            [$key, $value] = explode('=', $line, 2);
-            $markers[trim($key)] = trim($value);
+            [$k, $v] = explode('=', $line, 2);
+            $markers[trim($k)] = trim($v);
         }
 
         return $markers;
