@@ -76,6 +76,10 @@ class IndexPageListener
         }
     }
 
+if (PHP_SAPI === 'cli') {
+echo "INDEXPAGE LISTENER ACTIVE: {$set['url']}\n";
+}
+
     private function extractMarkers(string $content): array
     {
         if (!preg_match('/<!--\s*MEILISEARCH(.*?)-->/s', $content, $m)) {
