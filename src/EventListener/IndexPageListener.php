@@ -102,11 +102,10 @@ class IndexPageListener
         $this->indexPdfLinks($content);
     }
 
-    /**
-     * -------------------------------------
-     * JSON aus Kommentar extrahieren
-     * -------------------------------------
-     */
+    /* =====================================================
+     * JSON-Parser
+     * ===================================================== */
+
     private function extractMeilisearchJson(string $content): ?array
     {
         if (!preg_match('/<!--\s*MEILISEARCH_JSON\s*(\{.*?\})\s*-->/s', $content, $m)) {
@@ -119,51 +118,87 @@ class IndexPageListener
         return is_array($data) ? $data : null;
     }
 
-    /**
-     * -------------------------------------
-     * PDF-Links finden und indexieren
-     * -------------------------------------
-     */
+    /* =====================================================
+     * PDF-Link-Erkennung
+     * ===================================================== */
+
     private function indexPdfLinks(string $content): void
     {
         if (!preg_match_all(
-            '/<a\s+[^>]*href=["\']([^"\']+\.pdf[^"\']*)["\'][^>]*>(.*?)<\/a>/is',
+            '/<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/is',
             $content,
             $matches
         )) {
             return;
         }
 
-        foreach ($matches[1] as $i => $url) {
-            $title = trim(strip_tags($matches[2][$i])) ?: basename($url);
-            $this->indexSinglePdf($url, $title);
+        foreach ($matches[1] as $i => $href) {
+            $title = trim(strip_tags($matches[2][$i])) ?: 'PDF';
+
+            $pdfUrl = $this->resolvePdfUrl($href);
+            if ($pdfUrl === null) {
+                continue;
+            }
+
+            $this->indexSinglePdf($pdfUrl, $title);
         }
     }
 
     /**
-     * -------------------------------------
-     * Einzelnes PDF indexieren
-     * -------------------------------------
+     * Erkennt
+     *  - direkte PDF-Links (/files/...pdf)
+     *  - Contao-Download-Links (?p=...pdf)
      */
+    private function resolvePdfUrl(string $href): ?string
+    {
+        $href = html_entity_decode($href);
+
+        // 1) Direkter PDF-Link
+        $path = parse_url($href, PHP_URL_PATH);
+        if ($path && str_ends_with(strtolower($path), '.pdf')) {
+            return $this->normalizeUrl($href);
+        }
+
+        // 2) Contao-Download-Link (?p=...pdf)
+        $query = parse_url($href, PHP_URL_QUERY);
+        if (!$query) {
+            return null;
+        }
+
+        parse_str($query, $params);
+
+        if (
+            empty($params['p']) ||
+            !str_ends_with(strtolower($params['p']), '.pdf')
+        ) {
+            return null;
+        }
+
+        return $this->normalizeUrl('/files/' . ltrim($params['p'], '/'));
+    }
+
+    private function normalizeUrl(string $url): string
+    {
+        if (preg_match('~^https?://~i', $url)) {
+            return $url;
+        }
+
+        return
+            ($_SERVER['REQUEST_SCHEME'] ?? 'https')
+            . '://' . ($_SERVER['HTTP_HOST'] ?? '')
+            . '/' . ltrim($url, '/');
+    }
+
+    /* =====================================================
+     * PDF-Indexierung
+     * ===================================================== */
+
     private function indexSinglePdf(string $url, string $title): void
     {
-        // nur interne PDFs
-        if (!str_contains($url, '/files/')) {
-            return;
-        }
-
-        // relative URLs normalisieren
-        if (str_starts_with($url, '/')) {
-            $url =
-                ($_SERVER['REQUEST_SCHEME'] ?? 'https')
-                . '://' . ($_SERVER['HTTP_HOST'] ?? '')
-                . $url;
-        }
-
         $checksum = md5($url);
         $db = Database::getInstance();
 
-        // bereits indexiert?
+        // schon indexiert?
         $exists = $db
             ->prepare('SELECT id FROM tl_search WHERE checksum=?')
             ->execute($checksum);
@@ -196,11 +231,6 @@ class IndexPageListener
             );
     }
 
-    /**
-     * -------------------------------------
-     * PDF parsen (Smalot)
-     * -------------------------------------
-     */
     private function parsePdf(string $url): string
     {
         try {
@@ -214,7 +244,7 @@ class IndexPageListener
 
             $text = $this->cleanPdfContent($pdf->getText());
 
-            // Begrenzen (Performance + Relevanz)
+            // bewusst begrenzen (Performance + Relevanz)
             return mb_substr($text, 0, 5000);
 
         } catch (\Throwable) {
@@ -222,11 +252,6 @@ class IndexPageListener
         }
     }
 
-    /**
-     * -------------------------------------
-     * PDF-Text bereinigen
-     * -------------------------------------
-     */
     private function cleanPdfContent(string $content): string
     {
         $content = mb_convert_encoding($content, 'UTF-8', 'UTF-8');
