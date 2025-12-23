@@ -16,11 +16,11 @@ class MeilisearchPageMarkerListener
             return $buffer;
         }
 
-        $lines = ['MEILISEARCH'];
+        $data = [];
 
         /*
          * =====================
-         * PAGE (Basis)
+         * PAGE
          * =====================
          */
         $pageImageUuid = null;
@@ -28,12 +28,14 @@ class MeilisearchPageMarkerListener
         if (isset($GLOBALS['objPage']) && $GLOBALS['objPage'] instanceof PageModel) {
             $page = $GLOBALS['objPage'];
 
+            $data['page'] = [];
+
             if (!empty($page->priority)) {
-                $lines[] = 'page.priority=' . (int) $page->priority;
+                $data['page']['priority'] = (int) $page->priority;
             }
 
             if (!empty($page->keywords)) {
-                $lines[] = 'page.keywords=' . trim((string) $page->keywords);
+                $data['page']['keywords'] = trim((string) $page->keywords);
             }
 
             if (!empty($page->searchimage)) {
@@ -43,7 +45,7 @@ class MeilisearchPageMarkerListener
 
         /*
          * =====================
-         * SCHEMA.ORG BLÖCKE
+         * SCHEMA.ORG JSON-LD
          * =====================
          */
         preg_match_all(
@@ -55,102 +57,92 @@ class MeilisearchPageMarkerListener
         foreach ($jsonBlocks[1] as $json) {
 
             /*
-             * =====================
              * EVENT
-             * =====================
              */
             if (preg_match('#"@type"\s*:\s*"Event"#', $json)) {
+                $data['event'] ??= [];
 
                 if (preg_match('#\\\/schema\\\/events\\\/(\d+)#', $json, $m)) {
                     $event = CalendarEventsModel::findByPk((int) $m[1]);
 
                     if ($event !== null) {
                         if (!empty($event->priority)) {
-                            $lines[] = 'event.priority=' . (int) $event->priority;
+                            $data['event']['priority'] = (int) $event->priority;
                         }
 
                         if (!empty($event->keywords)) {
-                            $lines[] = 'event.keywords=' . trim((string) $event->keywords);
+                            $data['event']['keywords'] = trim((string) $event->keywords);
                         }
 
                         if ($event->addImage && !empty($event->singleSRC)) {
-                            $lines[] = 'event.searchimage=' . StringUtil::binToUuid($event->singleSRC);
+                            $data['event']['searchimage'] = StringUtil::binToUuid($event->singleSRC);
                         }
                     }
                 }
 
                 if (preg_match('#"startDate"\s*:\s*"([^"]+)"#', $json, $dm)) {
-                    $lines[] = 'event.date=' . $dm[1];
+                    $data['event']['date'] = $dm[1];
                 }
             }
 
             /*
-             * =====================
              * NEWS
-             * =====================
              */
             if (preg_match('#"@type"\s*:\s*"NewsArticle"#', $json)) {
+                $data['news'] ??= [];
 
                 if (preg_match('#\\\/schema\\\/news\\\/(\d+)#', $json, $m)) {
                     $news = NewsModel::findByPk((int) $m[1]);
 
                     if ($news !== null) {
                         if (!empty($news->priority)) {
-                            $lines[] = 'news.priority=' . (int) $news->priority;
+                            $data['news']['priority'] = (int) $news->priority;
                         }
 
                         if (!empty($news->keywords)) {
-                            $lines[] = 'news.keywords=' . trim((string) $news->keywords);
+                            $data['news']['keywords'] = trim((string) $news->keywords);
                         }
 
                         if ($news->addImage && !empty($news->singleSRC)) {
-                            $lines[] = 'news.searchimage=' . StringUtil::binToUuid($news->singleSRC);
+                            $data['news']['searchimage'] = StringUtil::binToUuid($news->singleSRC);
                         }
                     }
                 }
 
                 if (preg_match('#"datePublished"\s*:\s*"([^"]+)"#', $json, $dm)) {
-                    $lines[] = 'news.date=' . $dm[1];
+                    $data['news']['date'] = $dm[1];
                 }
             }
         }
 
         /*
-         * =====================
-         * CUSTOM SEARCHIMAGE (UUID direkt aus Markup)
-         * =====================
+         * CUSTOM SEARCHIMAGE (Markup)
          */
         if (
-            preg_match(
-                '#data-searchimage-uuid="([a-f0-9\-]{36})"#i',
-                $buffer,
-                $m
-            )
+            preg_match('#data-searchimage-uuid="([a-f0-9\-]{36})"#i', $buffer, $m)
         ) {
-            $lines[] = 'custom.searchimage=' . $m[1];
+            $data['custom']['searchimage'] = $m[1];
         }
 
         /*
-         * =====================
          * PAGE IMAGE FALLBACK
-         * =====================
          */
         if ($pageImageUuid) {
-            $lines[] = 'page.searchimage=' . $pageImageUuid;
+            $data['page']['searchimage'] = $pageImageUuid;
         } else {
             $fallback = Config::get('meilisearch_fallback_image');
             if ($fallback) {
-                $lines[] = 'page.searchimage=' . StringUtil::binToUuid($fallback);
+                $data['page']['searchimage'] = StringUtil::binToUuid($fallback);
             }
         }
 
-        if (count($lines) === 1) {
+        if ($data === []) {
             return $buffer;
         }
 
         $marker =
-            "\n<!--\n" .
-            implode("\n", array_unique($lines)) .
+            "\n<!--\nMEILISEARCH_JSON\n" .
+            json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) .
             "\n-->\n";
 
         return str_contains($buffer, '</body>')
