@@ -2,11 +2,15 @@
 
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
+use Contao\CoreBundle\ServiceAnnotation\Hook;
+
 class IndexPageListener
 {
+    /**
+     * @Hook("indexPage")
+     */
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
-        // Schneller Exit, wenn kein Marker existiert
         if (!str_contains($content, 'MEILISEARCH')) {
             return;
         }
@@ -17,67 +21,55 @@ class IndexPageListener
         }
 
         /*
-         * =====================
          * PRIORITY
-         * event/news > page
-         * =====================
          */
         if (isset($markers['event.priority'])) {
-            $data['priority'] = (int) $markers['event.priority'];
-            $set['priority'] = true;
+            $set['priority'] = (int) $markers['event.priority'];
         } elseif (isset($markers['news.priority'])) {
-            $data['priority'] = (int) $markers['news.priority'];
-            $set['priority'] = true;
+            $set['priority'] = (int) $markers['news.priority'];
         } elseif (isset($markers['page.priority'])) {
-            $data['priority'] = (int) $markers['page.priority'];
-            $set['priority'] = true;
+            $set['priority'] = (int) $markers['page.priority'];
         }
 
         /*
-         * =====================
          * KEYWORDS (kombiniert)
-         * =====================
          */
         $keywords = [];
 
         foreach (['event.keywords', 'news.keywords', 'page.keywords'] as $key) {
             if (!empty($markers[$key])) {
-                $parts = preg_split('/\s+/', trim($markers[$key])) ?: [];
-                $keywords = array_merge($keywords, $parts);
+                $keywords = array_merge(
+                    $keywords,
+                    preg_split('/\s+/', trim($markers[$key]))
+                );
             }
         }
 
         if ($keywords !== []) {
-            $keywords = array_values(array_unique(array_filter($keywords)));
-            $data['keywords'] = implode(' ', $keywords);
-            $set['keywords'] = true;
+            $set['keywords'] = implode(' ', array_unique($keywords));
         }
 
         /*
-         * =====================
          * SEARCH IMAGE (UUID)
-         * event/news > page > custom
-         * =====================
          */
-        foreach (['event.searchimage', 'news.searchimage', 'page.searchimage', 'custom.searchimage'] as $key) {
+        foreach (
+            ['event.searchimage', 'news.searchimage', 'page.searchimage', 'custom.searchimage']
+            as $key
+        ) {
             if (!empty($markers[$key])) {
-                $data['imagepath'] = trim($markers[$key]);   // vorerst nur UUID
-                $set['imagepath'] = true;
+                $set['imagepath'] = trim($markers[$key]);
                 break;
             }
         }
 
         /*
-         * =====================
          * START DATE (Timestamp)
-         * =====================
          */
         foreach (['event.date', 'news.date'] as $key) {
             if (!empty($markers[$key])) {
-                $ts = strtotime(trim($markers[$key]));
+                $ts = strtotime($markers[$key]);
                 if ($ts !== false) {
-                    $data['startDate'] = $ts;
-                    $set['startDate'] = true;
+                    $set['startDate'] = $ts;
                 }
                 break;
             }
@@ -86,22 +78,15 @@ class IndexPageListener
 
     private function extractMarkers(string $content): array
     {
-        // Kommentarblock isolieren
         if (!preg_match('/<!--\s*MEILISEARCH(.*?)-->/s', $content, $m)) {
             return [];
         }
 
-        $block = trim($m[1]);
-        $lines = preg_split('/\R/', $block) ?: [];
-
         $markers = [];
-        foreach ($lines as $line) {
-            $line = trim($line);
-
-            if ($line === '' || !str_contains($line, '=')) {
+        foreach (preg_split('/\R/', trim($m[1])) as $line) {
+            if (!str_contains($line, '=')) {
                 continue;
             }
-
             [$k, $v] = explode('=', $line, 2);
             $markers[trim($k)] = trim($v);
         }
