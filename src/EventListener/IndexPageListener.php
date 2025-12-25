@@ -2,8 +2,14 @@
 
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
+use MummertMedia\ContaoMeilisearchBundle\Service\PdfIndexService;
+
 class IndexPageListener
 {
+    public function __construct(
+        private readonly PdfIndexService $pdfIndexService
+    ) {}
+
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
         // Marker vorhanden?
@@ -92,17 +98,14 @@ class IndexPageListener
 
         /*
          * =====================
-         * DEBUG: KOMPLETTES MARKUP
+         * PDF-ERKENNUNG
          * =====================
          */
-        $this->debugMarkup($content);
+        $pdfLinks = $this->findPdfLinks($content);
 
-        /*
-         * =====================
-         * DEBUG: PDF-LINK GEFUNDEN
-         * =====================
-         */
-        $this->debugPdfLinks($content);
+        if ($pdfLinks !== []) {
+            $this->pdfIndexService->handlePdfLinks($pdfLinks);
+        }
     }
 
     private function extractMeilisearchJson(string $content): ?array
@@ -117,22 +120,21 @@ class IndexPageListener
         return is_array($data) ? $data : null;
     }
 
-    private function debugMarkup(string $content): void
+    /**
+     * Erkennt:
+     *  - direkte .pdf-Links
+     *  - Contao-Download-Links (?p=pdf/ oder ?p=pdf%2F)
+     */
+    private function findPdfLinks(string $content): array
     {
-        error_log(
-            "\n========== CRAWLER MARKUP START ==========\n"
-            . $content .
-            "\n=========== CRAWLER MARKUP END ===========\n"
-        );
-    }
-
-    private function debugPdfLinks(string $content): void
-    {
-        if (preg_match(
-            '/<a\s+[^>]*href=["\'][^"\']*(\.pdf|p=pdf(%2F|\/))[^"\']*["\']/i',
-            $content
+        if (!preg_match_all(
+            '/<a\s+[^>]*href=["\']([^"\']*(?:\.pdf|p=pdf(?:%2F|\/)[^"\']*))["\']/i',
+            $content,
+            $matches
         )) {
-            error_log('PDF-Link gefunden');
+            return [];
         }
+
+        return array_unique(array_map('html_entity_decode', $matches[1]));
     }
 }
