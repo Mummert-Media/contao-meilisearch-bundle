@@ -24,3 +24,8 @@ $GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_past_events'][0]
 
 $GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_past_events'][1]
     = 'Vergangene Kalender-Events werden ebenfalls in Meilisearch indexiert.';
+
+$GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_pdfs'] = [
+    'PDFs indexieren',
+    'Aktiviert die Indexierung von PDF-Dateien für die Suche.',
+];

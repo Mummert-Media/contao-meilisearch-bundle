@@ -2,6 +2,7 @@
 
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
+use Contao\Config;
 use Contao\System;
 use MummertMedia\ContaoMeilisearchBundle\Service\PdfIndexService;
 
@@ -11,7 +12,22 @@ class IndexPageListener
 
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
-        // 🔑 Service einmal pro Crawl initialisieren + Reset ausführen
+        /*
+         * =====================================================
+         * PDF-Indexierung global deaktiviert?
+         * → sofort raus, nichts anfassen
+         * =====================================================
+         */
+        if (!Config::get('meilisearch_index_pdfs')) {
+            return;
+        }
+
+        /*
+         * =====================================================
+         * PDF-Service einmal pro Crawl initialisieren
+         * + Tabelle initial leeren
+         * =====================================================
+         */
         if ($this->pdfIndexService === null) {
             $this->pdfIndexService = System::getContainer()->get(PdfIndexService::class);
             $this->pdfIndexService->resetTableOnce();
@@ -127,7 +143,7 @@ class IndexPageListener
     }
 
     /* =====================================================
-     * PDF-Links im HTML finden
+     * PDF-Links + Linktext aus HTML extrahieren
      * ===================================================== */
     private function findPdfLinks(string $content): array
     {
@@ -143,7 +159,7 @@ class IndexPageListener
 
         foreach ($matches[1] as $i => $href) {
             $result[] = [
-                'url' => html_entity_decode($href),
+                'url'      => html_entity_decode($href),
                 'linkText' => trim(strip_tags($matches[2][$i])) ?: null,
             ];
         }

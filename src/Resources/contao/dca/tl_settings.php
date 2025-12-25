@@ -69,6 +69,15 @@ $GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_fallback_image'] = [
     'sql' => "varbinary(16) NULL",
 ];
 
+$GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_index_pdfs'] = [
+    'label'     => &$GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_pdfs'],
+    'inputType' => 'checkbox',
+    'eval'      => [
+        'tl_class' => 'w50',
+    ],
+    'sql'       => "char(1) NOT NULL default '1'",
+];
+
 /**
  * Palette
  */
@@ -80,4 +89,5 @@ PaletteManipulator::create()
     ->addField('meilisearch_imagesize', 'meilisearch_legend')
     ->addField('meilisearch_fallback_image', 'meilisearch_legend')
     ->addField('meilisearch_index_past_events', 'meilisearch_legend')
+    ->addField('meilisearch_index_pdfs', 'meilisearch_legend')
     ->applyToPalette('default', 'tl_settings');
