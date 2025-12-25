@@ -96,11 +96,14 @@ class IndexPageListener
          * =====================
          */
         $this->debugMarkup($content);
-    }
 
-    /* =====================================================
-     * JSON-Parser
-     * ===================================================== */
+        /*
+         * =====================
+         * DEBUG: PDF-LINK GEFUNDEN
+         * =====================
+         */
+        $this->debugPdfLinks($content);
+    }
 
     private function extractMeilisearchJson(string $content): ?array
     {
@@ -114,13 +117,8 @@ class IndexPageListener
         return is_array($data) ? $data : null;
     }
 
-    /* =====================================================
-     * DEBUG
-     * ===================================================== */
-
     private function debugMarkup(string $content): void
     {
-        // Achtung: kann groß sein – absichtlich komplett
         error_log(
             "\n========== CRAWLER MARKUP START ==========\n"
             . $content .
