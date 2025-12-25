@@ -131,11 +131,13 @@ class PdfIndexService
     {
         $url = html_entity_decode($url);
 
+        // 1) direkter Pfad /files/xyz.pdf
         $path = parse_url($url, PHP_URL_PATH);
         if ($path && str_ends_with(strtolower($path), '.pdf')) {
             return $path;
         }
 
+        // 2) Query-Parameter auswerten
         $query = parse_url($url, PHP_URL_QUERY);
         if (!$query) {
             return null;
@@ -143,16 +145,18 @@ class PdfIndexService
 
         parse_str($query, $params);
 
-        if (empty($params['p'])) {
-            return null;
+        // 2a) Contao: p=pdf/xyz.pdf
+        if (!empty($params['p']) && str_ends_with(strtolower($params['p']), '.pdf')) {
+            return '/files/' . ltrim($params['p'], '/');
         }
 
-        $p = ltrim($params['p'], '/');
-        if (!str_ends_with(strtolower($p), '.pdf')) {
-            return null;
+        // 2b) Contao: f=xyz.pdf (typischer Download-Link)
+        if (!empty($params['f']) && str_ends_with(strtolower($params['f']), '.pdf')) {
+            // Standard: PDFs liegen unter /files/pdf/
+            return '/files/pdf/' . ltrim($params['f'], '/');
         }
 
-        return '/files/' . $p;
+        return null;
     }
 
     private function getAbsolutePath(string $url): ?string
