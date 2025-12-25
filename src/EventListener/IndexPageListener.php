@@ -127,4 +127,14 @@ class IndexPageListener
             "\n=========== CRAWLER MARKUP END ===========\n"
         );
     }
+
+    private function debugPdfLinks(string $content): void
+    {
+        if (preg_match(
+            '/<a\s+[^>]*href=["\'][^"\']*(\.pdf|p=pdf(%2F|\/))[^"\']*["\']/i',
+            $content
+        )) {
+            error_log('PDF-Link gefunden');
+        }
+    }
 }
