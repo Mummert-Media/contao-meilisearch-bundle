@@ -84,12 +84,24 @@ class PdfIndexService
      * ===================================================== */
     private function normalizePdfUrl(string $url): ?string
     {
-        $url = html_entity_decode($url);
+        // Fall 1: direkter /files/-Pfad
+        if (str_starts_with($url, '/files/') && str_ends_with($url, '.pdf')) {
+            return $url;
+        }
 
-        // direkter /files/*.pdf-Link
-        $path = parse_url($url, PHP_URL_PATH);
-        if ($path && preg_match('~^/files/.*\.pdf$~i', $path)) {
-            return $path;
+        // Fall 2: Contao-Download-Link mit ?p=
+        $decoded = html_entity_decode($url);
+
+        $parts = parse_url($decoded);
+        if (!isset($parts['query'])) {
+            return null;
+        }
+
+        parse_str($parts['query'], $query);
+
+        if (!empty($query['p'])) {
+            // Contao speichert Pfade relativ zu /files
+            return '/files/' . ltrim($query['p'], '/');
         }
 
         return null;
