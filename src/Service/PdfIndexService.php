@@ -181,7 +181,7 @@ class PdfIndexService
 
             $text = $this->cleanPdfContent($pdf->getText());
 
-            return mb_substr($text, 0, 5000);
+            return mb_substr($text, 0, 20000);
 
         } catch (\Throwable) {
             return '';
