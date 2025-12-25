@@ -92,10 +92,10 @@ class IndexPageListener
 
         /*
          * =====================
-         * PDF DEBUG (NUR ERKENNEN)
+         * DEBUG: KOMPLETTES MARKUP
          * =====================
          */
-        $this->debugPdfLinks($content);
+        $this->debugMarkup($content);
     }
 
     /* =====================================================
@@ -115,17 +115,16 @@ class IndexPageListener
     }
 
     /* =====================================================
-     * PDF DEBUG
+     * DEBUG
      * ===================================================== */
 
-    private function debugPdfLinks(string $content): void
+    private function debugMarkup(string $content): void
     {
-        // irgendein <a href="..."> mit PDF (direkt oder über ?p=)
-        if (preg_match(
-            '/<a\s+[^>]*href=["\'][^"\']*(\.pdf|\bp=pdf\/)[^"\']*["\']/i',
-            $content
-        )) {
-            error_log('PDF-Link gefunden');
-        }
+        // Achtung: kann groß sein – absichtlich komplett
+        error_log(
+            "\n========== CRAWLER MARKUP START ==========\n"
+            . $content .
+            "\n=========== CRAWLER MARKUP END ===========\n"
+        );
     }
 }
