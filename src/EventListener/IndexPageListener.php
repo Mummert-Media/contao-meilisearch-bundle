@@ -14,23 +14,23 @@ class IndexPageListener
     {
         /*
          * =====================================================
-         * PDF-Indexierung global deaktiviert?
-         * → sofort raus, nichts anfassen
-         * =====================================================
-         */
-        if (!Config::get('meilisearch_index_pdfs')) {
-            return;
-        }
-
-        /*
-         * =====================================================
-         * PDF-Service einmal pro Crawl initialisieren
-         * + Tabelle initial leeren
+         * IMMER: Service einmal pro Crawl initialisieren
+         * + Tabelle initial leeren (auch wenn Feature später deaktiviert wurde)
          * =====================================================
          */
         if ($this->pdfIndexService === null) {
             $this->pdfIndexService = System::getContainer()->get(PdfIndexService::class);
             $this->pdfIndexService->resetTableOnce();
+        }
+
+        /*
+         * =====================================================
+         * PDF-Indexierung global deaktiviert?
+         * → ab hier nichts mehr tun (aber Reset ist schon passiert)
+         * =====================================================
+         */
+        if (!Config::get('meilisearch_index_pdfs')) {
+            return;
         }
 
         // Marker vorhanden?
@@ -127,9 +127,6 @@ class IndexPageListener
         }
     }
 
-    /* =====================================================
-     * JSON aus Marker extrahieren
-     * ===================================================== */
     private function extractMeilisearchJson(string $content): ?array
     {
         if (!preg_match('/<!--\s*MEILISEARCH_JSON\s*(\{.*?\})\s*-->/s', $content, $m)) {
@@ -142,9 +139,6 @@ class IndexPageListener
         return is_array($data) ? $data : null;
     }
 
-    /* =====================================================
-     * PDF-Links + Linktext aus HTML extrahieren
-     * ===================================================== */
     private function findPdfLinks(string $content): array
     {
         if (!preg_match_all(
