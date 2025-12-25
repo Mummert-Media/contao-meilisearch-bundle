@@ -105,7 +105,8 @@ class IndexPageListener
          */
         $pdfLinks = $this->findPdfLinks($content);
 
-        if ($pdfLinks !== []) {
+        // PDFs NUR auf öffentlichen Seiten indexieren
+        if ($pdfLinks !== [] && ($data['protected'] ?? 0) == 0) {
             $this->pdfIndexService->handlePdfLinks($pdfLinks);
         }
     }
