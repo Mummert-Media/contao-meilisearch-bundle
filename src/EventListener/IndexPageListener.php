@@ -2,14 +2,11 @@
 
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
+use Contao\System;
 use MummertMedia\ContaoMeilisearchBundle\Service\PdfIndexService;
 
 class IndexPageListener
 {
-    public function __construct(
-        private readonly PdfIndexService $pdfIndexService
-    ) {}
-
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
         // Marker vorhanden?
@@ -17,7 +14,6 @@ class IndexPageListener
             return;
         }
 
-        // JSON aus Kommentar extrahieren
         $parsed = $this->extractMeilisearchJson($content);
         if ($parsed === null) {
             return;
@@ -98,13 +94,17 @@ class IndexPageListener
 
         /*
          * =====================
-         * PDF-ERKENNUNG
+         * PDF-ERKENNUNG (DEBUG)
          * =====================
          */
         $pdfLinks = $this->findPdfLinks($content);
 
         if ($pdfLinks !== []) {
-            $this->pdfIndexService->handlePdfLinks($pdfLinks);
+            error_log('PDF gefunden');
+
+            /** @var PdfIndexService $service */
+            $service = System::getContainer()->get(PdfIndexService::class);
+            $service->handlePdfLinks($pdfLinks);
         }
     }
 
@@ -120,11 +120,6 @@ class IndexPageListener
         return is_array($data) ? $data : null;
     }
 
-    /**
-     * Erkennt:
-     *  - direkte .pdf-Links
-     *  - Contao-Download-Links (?p=pdf/ oder ?p=pdf%2F)
-     */
     private function findPdfLinks(string $content): array
     {
         if (!preg_match_all(

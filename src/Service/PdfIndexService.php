@@ -6,7 +6,6 @@ class PdfIndexService
 {
     public function handlePdfLinks(array $pdfLinks): void
     {
-        // Platzhalter – Logik kommt später
-        error_log('PDF-Parser-Service aufgerufen');
+        error_log('PDF Service aufgerufen');
     }
 }
