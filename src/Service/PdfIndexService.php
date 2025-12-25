@@ -162,11 +162,32 @@ class PdfIndexService
         }
     }
 
-    private function cleanPdfContent(string $content): string
+    private function cleanPdfContent(string $text): string
     {
-        $content = preg_replace('/[\x00-\x1F\x7F]/u', ' ', $content);
-        $content = preg_replace('/\s+/u', ' ', $content);
+        // 1. Unicode normalisieren (wichtig!)
+        if (class_exists(\Normalizer::class)) {
+            $text = \Normalizer::normalize($text, \Normalizer::FORM_C);
+        }
 
-        return trim($content);
+        // 2. Musik- & Spezialglyphen entfernen
+        $text = preg_replace('/[^\p{L}\p{N}\p{P}\p{Z}\n]/u', ' ', $text);
+
+        // 3. Falsche Worttrennungen reparieren: "ges pielt" → "gespielt"
+        $text = preg_replace('/(?<=\p{L})\s+(?=\p{L})/u', ' ', $text);
+
+        // 4. Spezielle PDF-Apostrophe reparieren
+        $text = str_replace(
+            ["\\'", "’", "‘"],
+            "'",
+            $text
+        );
+
+        // 5. Mehrfache Satzzeichen bereinigen
+        $text = preg_replace('/([.,;:!?])\1+/', '$1', $text);
+
+        // 6. Überflüssige Leerzeichen & Zeilenumbrüche
+        $text = preg_replace('/\s+/u', ' ', $text);
+
+        return trim($text);
     }
 }
