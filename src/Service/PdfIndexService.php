@@ -129,7 +129,7 @@ class PdfIndexService
         $db
             ->prepare('
                 INSERT INTO tl_search_pdf
-                    (tstamp, path, title, text, checksum, file_mtime)
+                    (tstamp, url, title, text, checksum, file_mtime)
                 VALUES (?, ?, ?, ?, ?, ?)
             ')
             ->execute(
