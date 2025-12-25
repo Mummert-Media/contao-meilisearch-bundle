@@ -7,8 +7,12 @@ use MummertMedia\ContaoMeilisearchBundle\Service\PdfIndexService;
 
 class IndexPageListener
 {
+    public function __construct(
+        private PdfIndexService $pdfIndexService
+    ) {}
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
+        $this->pdfIndexService->startCrawl();
         // Marker vorhanden?
         if (!str_contains($content, 'MEILISEARCH_JSON')) {
             return;
@@ -100,11 +104,9 @@ class IndexPageListener
         $pdfLinks = $this->findPdfLinks($content);
 
         if ($pdfLinks !== []) {
+            $this->pdfIndexService->startCrawl();
             error_log('PDF gefunden');
-
-            /** @var PdfIndexService $service */
-            $service = System::getContainer()->get(PdfIndexService::class);
-            $service->handlePdfLinks($pdfLinks);
+            $this->pdfIndexService->handlePdfLinks($pdfLinks);
         }
     }
 

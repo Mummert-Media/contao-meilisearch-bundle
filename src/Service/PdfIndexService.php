@@ -8,6 +8,29 @@ use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 
 class PdfIndexService
 {
+
+    private int $crawlStart = 0;
+
+    public function startCrawl(): void
+    {
+        if ($this->crawlStart === 0) {
+            $this->crawlStart = time();
+            error_log('PDF Crawl Start: ' . $this->crawlStart);
+        }
+    }
+
+    public function cleanupRemovedPdfs(): void
+    {
+        if ($this->crawlStart === 0) {
+            return;
+        }
+
+        Database::getInstance()
+            ->prepare('DELETE FROM tl_search_pdf WHERE tstamp < ?')
+            ->execute($this->crawlStart);
+
+        error_log('PDF Cleanup abgeschlossen');
+    }
     private string $projectDir;
 
     public function __construct(ParameterBagInterface $params)

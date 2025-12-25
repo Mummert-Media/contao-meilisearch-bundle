@@ -10,3 +10,7 @@ services:
   MummertMedia\ContaoMeilisearchBundle\EventListener\IndexPageListener:
     tags:
       - { name: contao.hook, hook: indexPage, method: onIndexPage }
+
+  MummertMedia\ContaoMeilisearchBundle\EventListener\PdfCleanupListener:
+    tags:
+      - { name: kernel.event_listener, event: terminal42.escargot.last_chunk, method: onLastChunk }
