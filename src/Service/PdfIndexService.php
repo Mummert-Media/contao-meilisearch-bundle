@@ -131,13 +131,13 @@ class PdfIndexService
     {
         $url = html_entity_decode($url);
 
-        // 1) direkter Pfad /files/xyz.pdf
+        // 1) direkter /files/*.pdf-Link (immer korrekt)
         $path = parse_url($url, PHP_URL_PATH);
-        if ($path && str_ends_with(strtolower($path), '.pdf')) {
+        if ($path && preg_match('~^/files/.*\.pdf$~i', $path)) {
             return $path;
         }
 
-        // 2) Query-Parameter auswerten
+        // 2) Query-Parameter prüfen
         $query = parse_url($url, PHP_URL_QUERY);
         if (!$query) {
             return null;
@@ -145,15 +145,21 @@ class PdfIndexService
 
         parse_str($query, $params);
 
-        // 2a) Contao: p=pdf/xyz.pdf
-        if (!empty($params['p']) && str_ends_with(strtolower($params['p']), '.pdf')) {
+        // 2a) Contao p=pdf/xyz.pdf
+        if (!empty($params['p']) && preg_match('~\.pdf$~i', $params['p'])) {
             return '/files/' . ltrim($params['p'], '/');
         }
 
-        // 2b) Contao: f=xyz.pdf (typischer Download-Link)
-        if (!empty($params['f']) && str_ends_with(strtolower($params['f']), '.pdf')) {
-            // Standard: PDFs liegen unter /files/pdf/
-            return '/files/pdf/' . ltrim($params['f'], '/');
+        // 2b) Contao Download: f=Dateiname → Dateisystem suchen
+        if (!empty($params['f'])) {
+            $file = basename($params['f']);
+
+            // Suche im /files-Verzeichnis (rekursiv, aber schnell genug)
+            $matches = glob(TL_ROOT . '/files/**/' . $file, GLOB_BRACE);
+
+            if (!empty($matches)) {
+                return str_replace(TL_ROOT, '', $matches[0]);
+            }
         }
 
         return null;
