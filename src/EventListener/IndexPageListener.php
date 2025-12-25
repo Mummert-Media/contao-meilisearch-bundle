@@ -101,17 +101,17 @@ class IndexPageListener
          */
         $pdfLinks = $this->findPdfLinks($content);
 
-        if ($pdfLinks !== []) {
-            error_log('PDF gefunden');
-
-            // PdfIndexService lazy aus dem Container holen
-            if ($this->pdfIndexService === null) {
-                $this->pdfIndexService = System::getContainer()->get(PdfIndexService::class);
-            }
-
-            $this->pdfIndexService->startCrawl();
-            $this->pdfIndexService->handlePdfLinks($pdfLinks);
+        if ($pdfLinks === []) {
+            return;
         }
+
+        // Service lazy aus Container holen
+        if ($this->pdfIndexService === null) {
+            $this->pdfIndexService = System::getContainer()->get(PdfIndexService::class);
+            $this->pdfIndexService->resetTableOnce();
+        }
+
+        $this->pdfIndexService->handlePdfLinks($pdfLinks);
     }
 
     /* =====================================================

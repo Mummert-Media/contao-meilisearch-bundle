@@ -8,63 +8,43 @@ use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 
 class PdfIndexService
 {
-
-    private int $crawlStart = 0;
-
-    public function startCrawl(): void
-    {
-        if ($this->crawlStart === 0) {
-            $this->crawlStart = time();
-            error_log('PDF Crawl Start: ' . $this->crawlStart);
-        }
-    }
-
-    public function cleanupRemovedPdfs(): void
-    {
-        if ($this->crawlStart === 0) {
-            return;
-        }
-
-        Database::getInstance()
-            ->prepare('DELETE FROM tl_search_pdf WHERE tstamp < ?')
-            ->execute($this->crawlStart);
-
-        error_log('PDF Cleanup abgeschlossen');
-    }
     private string $projectDir;
+    private bool $tableReset = false;
 
     public function __construct(ParameterBagInterface $params)
     {
-        // Contao 5 / Symfony-konform
         $this->projectDir = rtrim($params->get('kernel.project_dir'), '/');
     }
 
-    /**
-     * Einstiegspunkt aus dem IndexPageListener
-     */
+    /* =====================================================
+     * Reset tl_search_pdf einmal pro Crawl
+     * ===================================================== */
+    public function resetTableOnce(): void
+    {
+        if ($this->tableReset) {
+            return;
+        }
+
+        Database::getInstance()->execute('TRUNCATE TABLE tl_search_pdf');
+        $this->tableReset = true;
+
+        error_log('PDF Reset: tl_search_pdf geleert');
+    }
+
+    /* =====================================================
+     * Einstiegspunkt aus Listener
+     * ===================================================== */
     public function handlePdfLinks(array $pdfLinks): void
     {
-        error_log('PDF Service aufgerufen');
-        error_log('PDF Links Count: ' . count($pdfLinks));
-        error_log('PDF Links: ' . json_encode($pdfLinks, JSON_UNESCAPED_SLASHES));
-
         foreach ($pdfLinks as $url) {
             try {
-                error_log('bearbeite PDF: ' . $url);
-
                 $normalizedPath = $this->normalizePdfUrl($url);
-                error_log('umgewandelte URL: ' . var_export($normalizedPath, true));
-
                 if ($normalizedPath === null) {
-                    error_log('→ übersprungen: kein gültiger PDF-Pfad');
                     continue;
                 }
 
                 $absolutePath = $this->getAbsolutePath($normalizedPath);
-                error_log('absoluter Pfad: ' . var_export($absolutePath, true));
-
                 if (!is_file($absolutePath)) {
-                    error_log('→ übersprungen: Datei existiert nicht');
                     continue;
                 }
 
@@ -72,32 +52,24 @@ class PdfIndexService
                 $checksum = md5($normalizedPath . $mtime);
 
                 if ($this->alreadyIndexed($checksum)) {
-                    error_log('→ übersprungen: bereits indexiert');
                     continue;
                 }
 
-                $title = basename($absolutePath);
-                error_log('gefundener Title: ' . $title);
-
                 $text = $this->parsePdf($absolutePath);
                 if ($text === '') {
-                    error_log('→ übersprungen: PDF ohne Textinhalt');
                     continue;
                 }
 
                 $this->insertPdf(
                     $normalizedPath,
-                    $title,
+                    basename($absolutePath),
                     $text,
                     $checksum,
                     $mtime
                 );
 
-                error_log('geschrieben in tl_search_pdf');
-
             } catch (\Throwable $e) {
-                error_log('PDF Service FEHLER (pro PDF): ' . $e->getMessage());
-                error_log($e->getTraceAsString());
+                error_log('PDF Service Fehler: ' . $e->getMessage());
             }
         }
     }
@@ -107,15 +79,13 @@ class PdfIndexService
      * ===================================================== */
     private function normalizePdfUrl(string $url): ?string
     {
-        // Fall 1: direkter /files/-Pfad
         if (str_starts_with($url, '/files/') && str_ends_with($url, '.pdf')) {
             return $url;
         }
 
-        // Fall 2: Contao-Download-Link mit ?p=
         $decoded = html_entity_decode($url);
-
         $parts = parse_url($decoded);
+
         if (!isset($parts['query'])) {
             return null;
         }
@@ -123,7 +93,6 @@ class PdfIndexService
         parse_str($parts['query'], $query);
 
         if (!empty($query['p'])) {
-            // Contao speichert Pfade relativ zu /files
             return '/files/' . ltrim($query['p'], '/');
         }
 
@@ -131,7 +100,7 @@ class PdfIndexService
     }
 
     /* =====================================================
-     * relativer Pfad → absoluter Pfad
+     * Pfade
      * ===================================================== */
     private function getAbsolutePath(string $relativePath): string
     {
@@ -139,13 +108,11 @@ class PdfIndexService
     }
 
     /* =====================================================
-     * DB-Helfer
+     * DB
      * ===================================================== */
     private function alreadyIndexed(string $checksum): bool
     {
-        $db = Database::getInstance();
-
-        $result = $db
+        $result = Database::getInstance()
             ->prepare('SELECT id FROM tl_search_pdf WHERE checksum = ?')
             ->execute($checksum);
 
@@ -159,9 +126,7 @@ class PdfIndexService
         string $checksum,
         int $mtime
     ): void {
-        $db = Database::getInstance();
-
-        $db
+        Database::getInstance()
             ->prepare('
                 INSERT INTO tl_search_pdf
                     (tstamp, url, title, text, checksum, file_mtime)
@@ -186,43 +151,18 @@ class PdfIndexService
             $parser = new Parser();
             $pdf = $parser->parseFile($absolutePath);
 
-            $text = $this->cleanPdfContent($pdf->getText());
+            $text = $pdf->getText();
 
-            // bewusst begrenzen (Performance + Relevanz)
-            return mb_substr($text, 0, 5000);
+            if (class_exists(\Normalizer::class)) {
+                $text = \Normalizer::normalize($text, \Normalizer::FORM_C);
+            }
 
-        } catch (\Throwable $e) {
-            error_log('PDF Parser FEHLER: ' . $e->getMessage());
+            $text = preg_replace('/[^\p{L}\p{N}\p{P}\p{Z}]/u', ' ', $text);
+            $text = preg_replace('/\s+/u', ' ', $text);
+
+            return trim(mb_substr($text, 0, 5000));
+        } catch (\Throwable) {
             return '';
         }
-    }
-
-    private function cleanPdfContent(string $text): string
-    {
-        // 1. Unicode normalisieren (wichtig!)
-        if (class_exists(\Normalizer::class)) {
-            $text = \Normalizer::normalize($text, \Normalizer::FORM_C);
-        }
-
-        // 2. Musik- & Spezialglyphen entfernen
-        $text = preg_replace('/[^\p{L}\p{N}\p{P}\p{Z}\n]/u', ' ', $text);
-
-        // 3. Falsche Worttrennungen reparieren: "ges pielt" → "gespielt"
-        $text = preg_replace('/(?<=\p{L})\s+(?=\p{L})/u', ' ', $text);
-
-        // 4. Spezielle PDF-Apostrophe reparieren
-        $text = str_replace(
-            ["\\'", "’", "‘"],
-            "'",
-            $text
-        );
-
-        // 5. Mehrfache Satzzeichen bereinigen
-        $text = preg_replace('/([.,;:!?])\1+/', '$1', $text);
-
-        // 6. Überflüssige Leerzeichen & Zeilenumbrüche
-        $text = preg_replace('/\s+/u', ' ', $text);
-
-        return trim($text);
     }
 }
