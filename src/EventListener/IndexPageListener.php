@@ -132,13 +132,22 @@ class IndexPageListener
     private function findPdfLinks(string $content): array
     {
         if (!preg_match_all(
-            '/<a\s+[^>]*href=["\']([^"\']*(?:\.pdf|p=pdf(?:%2F|\/)[^"\']*))["\']/i',
+            '/<a\s+[^>]*href=["\']([^"\']*(?:\.pdf|p=pdf(?:%2F|\/)[^"\']*))["\'][^>]*>(.*?)<\/a>/is',
             $content,
             $matches
         )) {
             return [];
         }
 
-        return array_unique(array_map('html_entity_decode', $matches[1]));
+        $result = [];
+
+        foreach ($matches[1] as $i => $href) {
+            $result[] = [
+                'url' => html_entity_decode($href),
+                'linkText' => trim(strip_tags($matches[2][$i])) ?: null,
+            ];
+        }
+
+        return $result;
     }
 }
