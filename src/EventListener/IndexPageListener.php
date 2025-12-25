@@ -11,6 +11,12 @@ class IndexPageListener
 
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
+        // 🔑 Service einmal pro Crawl initialisieren + Reset ausführen
+        if ($this->pdfIndexService === null) {
+            $this->pdfIndexService = System::getContainer()->get(PdfIndexService::class);
+            $this->pdfIndexService->resetTableOnce();
+        }
+
         // Marker vorhanden?
         if (!str_contains($content, 'MEILISEARCH_JSON')) {
             return;
@@ -53,9 +59,7 @@ class IndexPageListener
             }
 
             foreach (preg_split('/\s+/', trim($src)) as $word) {
-                if ($word !== '') {
-                    $keywords[] = $word;
-                }
+                $keywords[] = $word;
             }
         }
 
@@ -101,17 +105,9 @@ class IndexPageListener
          */
         $pdfLinks = $this->findPdfLinks($content);
 
-        if ($pdfLinks === []) {
-            return;
+        if ($pdfLinks !== []) {
+            $this->pdfIndexService->handlePdfLinks($pdfLinks);
         }
-
-        // Service lazy aus Container holen
-        if ($this->pdfIndexService === null) {
-            $this->pdfIndexService = System::getContainer()->get(PdfIndexService::class);
-            $this->pdfIndexService->resetTableOnce();
-        }
-
-        $this->pdfIndexService->handlePdfLinks($pdfLinks);
     }
 
     /* =====================================================
@@ -130,7 +126,7 @@ class IndexPageListener
     }
 
     /* =====================================================
-     * PDF-Links im Markup finden
+     * PDF-Links im HTML finden
      * ===================================================== */
     private function findPdfLinks(string $content): array
     {
@@ -142,8 +138,6 @@ class IndexPageListener
             return [];
         }
 
-        return array_unique(
-            array_map('html_entity_decode', $matches[1])
-        );
+        return array_unique(array_map('html_entity_decode', $matches[1]));
     }
 }
