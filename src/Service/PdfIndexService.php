@@ -10,16 +10,11 @@ class PdfIndexService
 {
     private string $projectDir;
 
-    /**
-     * Merkt sich Checksums innerhalb eines Crawls
-     * → verhindert Duplicate INSERTs
-     */
-    private array $processedChecksums = [];
+    /** @var bool */
+    private bool $crawlInitialized = false;
 
-    /**
-     * Flag, damit das Reset nur 1× pro Crawl passiert
-     */
-    private bool $resetDone = false;
+    /** @var array<string, bool> */
+    private array $processedChecksums = [];
 
     public function __construct(ParameterBagInterface $params)
     {
@@ -27,30 +22,22 @@ class PdfIndexService
     }
 
     /* =====================================================
-     * Crawl-Start: Tabelle leeren
+     * PUBLIC API
      * ===================================================== */
-    public function startCrawl(): void
-    {
-        if ($this->resetDone) {
-            return;
-        }
 
-        Database::getInstance()->execute('TRUNCATE TABLE tl_search_pdf');
-
-        $this->processedChecksums = [];
-        $this->resetDone = true;
-
-        error_log('PDF Crawl Start → tl_search_pdf geleert');
-    }
-
-    /* =====================================================
-     * Einstiegspunkt aus dem Listener
-     * ===================================================== */
+    /**
+     * Einstiegspunkt aus dem IndexPageListener
+     *
+     * @param array<int,array{url:string,text?:string|null}> $pdfLinks
+     */
     public function handlePdfLinks(array $pdfLinks): void
     {
+        // 🔴 WICHTIG: Reset garantiert VOR dem ersten INSERT
+        $this->initializeCrawl();
+
         foreach ($pdfLinks as $pdf) {
             try {
-                $url = $pdf['url'];
+                $url      = $pdf['url'];
                 $linkText = $pdf['text'] ?? null;
 
                 error_log('bearbeite PDF: ' . $url);
@@ -61,30 +48,36 @@ class PdfIndexService
                     continue;
                 }
 
-                $absolutePath = $this->getAbsolutePath($relativePath);
+                $absolutePath = $this->projectDir . '/' . ltrim($relativePath, '/');
                 if (!is_file($absolutePath)) {
                     error_log('→ übersprungen: Datei existiert nicht');
                     continue;
                 }
 
+                // Datei-Zeitstempel
                 $mtime = filemtime($absolutePath) ?: 0;
-                $checksum = md5($relativePath . $mtime);
 
+                // Stabiler Crawl-Checksum
+                $checksum = md5($relativePath . '|' . $mtime);
+
+                // Pro Crawl deduplizieren
                 if (isset($this->processedChecksums[$checksum])) {
                     error_log('→ übersprungen: bereits im Crawl verarbeitet');
                     continue;
                 }
-
                 $this->processedChecksums[$checksum] = true;
 
-                $title = $this->resolveTitle($linkText, $absolutePath);
-                $text  = $this->parsePdf($absolutePath);
+                // Titel bestimmen
+                $title = $this->resolveTitle($absolutePath, $linkText);
 
+                // PDF parsen
+                $text = $this->parsePdf($absolutePath);
                 if ($text === '') {
                     error_log('→ übersprungen: PDF ohne Textinhalt');
                     continue;
                 }
 
+                // Schreiben
                 $this->insertPdf(
                     $relativePath,
                     $title,
@@ -97,47 +90,43 @@ class PdfIndexService
 
             } catch (\Throwable $e) {
                 error_log('PDF Service FEHLER: ' . $e->getMessage());
+                error_log($e->getTraceAsString());
             }
         }
     }
 
     /* =====================================================
-     * Titel-Ermittlung (Prio!)
+     * CRAWL-LIFECYCLE
      * ===================================================== */
-    private function resolveTitle(?string $linkText, string $absolutePath): string
+
+    private function initializeCrawl(): void
     {
-        if (is_string($linkText) && trim($linkText) !== '') {
-            return trim(strip_tags($linkText));
+        if ($this->crawlInitialized) {
+            return;
         }
 
-        try {
-            $parser = new Parser();
-            $pdf = $parser->parseFile($absolutePath);
-            $details = $pdf->getDetails();
+        $this->crawlInitialized = true;
+        $this->processedChecksums = [];
 
-            if (!empty($details['Title'])) {
-                return trim((string) $details['Title']);
-            }
-        } catch (\Throwable) {
-            // ignorieren
-        }
+        Database::getInstance()->execute('TRUNCATE TABLE tl_search_pdf');
 
-        return basename($absolutePath);
+        error_log('PDF Crawl initialisiert → tl_search_pdf geleert');
     }
 
     /* =====================================================
-     * URL → relativer /files-Pfad
+     * URL-NORMALISIERUNG
      * ===================================================== */
+
     private function normalizePdfUrl(string $url): ?string
     {
-        // direkter /files-Link
+        // Direkter /files-Link
         if (str_starts_with($url, '/files/') && str_ends_with($url, '.pdf')) {
             return $url;
         }
 
-        // Contao Download-Link (?p=pdf/...)
+        // Contao Hash-/Download-Link (?p=)
         $decoded = html_entity_decode($url);
-        $parts = parse_url($decoded);
+        $parts   = parse_url($decoded);
 
         if (!isset($parts['query'])) {
             return null;
@@ -153,32 +142,53 @@ class PdfIndexService
     }
 
     /* =====================================================
-     * relativer → absoluter Pfad
+     * TITEL-AUFLÖSUNG
      * ===================================================== */
-    private function getAbsolutePath(string $relativePath): string
+
+    private function resolveTitle(string $absolutePath, ?string $linkText): string
     {
-        return $this->projectDir . '/' . ltrim($relativePath, '/');
+        // 1. Linktext aus HTML
+        if (is_string($linkText) && trim($linkText) !== '') {
+            return trim($linkText);
+        }
+
+        // 2. PDF-Metadaten
+        try {
+            $parser = new Parser();
+            $pdf    = $parser->parseFile($absolutePath);
+            $details = $pdf->getDetails();
+
+            if (!empty($details['Title'])) {
+                return trim((string) $details['Title']);
+            }
+        } catch (\Throwable) {
+            // ignorieren
+        }
+
+        // 3. Fallback: Dateiname
+        return basename($absolutePath);
     }
 
     /* =====================================================
-     * DB INSERT
+     * DB
      * ===================================================== */
+
     private function insertPdf(
-        string $path,
+        string $url,
         string $title,
         string $text,
         string $checksum,
         int $mtime
     ): void {
         Database::getInstance()
-            ->prepare('
-                INSERT INTO tl_search_pdf
-                    (tstamp, url, title, text, checksum, file_mtime)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ')
+            ->prepare(
+                'INSERT INTO tl_search_pdf
+                 (tstamp, url, title, text, checksum, file_mtime)
+                 VALUES (?, ?, ?, ?, ?, ?)'
+            )
             ->execute(
                 time(),
-                $path,
+                $url,
                 $title,
                 $text,
                 $checksum,
@@ -187,16 +197,20 @@ class PdfIndexService
     }
 
     /* =====================================================
-     * PDF-Parsing + Cleanup
+     * PDF PARSING
      * ===================================================== */
+
     private function parsePdf(string $absolutePath): string
     {
         try {
             $parser = new Parser();
-            $pdf = $parser->parseFile($absolutePath);
+            $pdf    = $parser->parseFile($absolutePath);
+
             $text = $this->cleanPdfContent($pdf->getText());
 
+            // Begrenzen (Performance + Relevanz)
             return mb_substr($text, 0, 5000);
+
         } catch (\Throwable $e) {
             error_log('PDF Parser FEHLER: ' . $e->getMessage());
             return '';
@@ -209,10 +223,19 @@ class PdfIndexService
             $text = \Normalizer::normalize($text, \Normalizer::FORM_C);
         }
 
+        // Sonderglyphen raus
         $text = preg_replace('/[^\p{L}\p{N}\p{P}\p{Z}\n]/u', ' ', $text);
-        $text = preg_replace('/(?<=\p{L})\s+(?=\p{L})/u', ' ', $text);
-        $text = str_replace(["\\'", "’", "‘"], "'", $text);
+
+        // Worttrennungen reparieren
+        $text = preg_replace('/(?<=\p{L})\s+(?=\p{L})/u', '', $text);
+
+        // Apostrophe normalisieren
+        $text = str_replace(["\\'", '’', '‘'], "'", $text);
+
+        // Mehrfache Satzzeichen
         $text = preg_replace('/([.,;:!?])\1+/', '$1', $text);
+
+        // Whitespaces
         $text = preg_replace('/\s+/u', ' ', $text);
 
         return trim($text);
