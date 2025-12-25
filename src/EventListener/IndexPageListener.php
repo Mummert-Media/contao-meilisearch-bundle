@@ -12,24 +12,15 @@ class IndexPageListener
 
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
-        /*
-         * =====================================================
-         * IMMER: Service einmal pro Crawl initialisieren
-         * + Tabelle initial leeren (auch wenn Feature später deaktiviert wurde)
-         * =====================================================
-         */
+        // ✅ IMMER: Service einmal pro Crawl holen + Tabelle einmal leeren
         if ($this->pdfIndexService === null) {
             $this->pdfIndexService = System::getContainer()->get(PdfIndexService::class);
-            $this->pdfIndexService->resetTableOnce();
+            $this->pdfIndexService->resetTableOnce(); // <- darf NICHT von Checkbox abhängen!
         }
 
-        /*
-         * =====================================================
-         * PDF-Indexierung global deaktiviert?
-         * → ab hier nichts mehr tun (aber Reset ist schon passiert)
-         * =====================================================
-         */
-        if (!Config::get('meilisearch_index_pdfs')) {
+        // ✅ Checkbox steuert nur die PDF-Suche/Indexierung (nicht den Reset!)
+        $pdfEnabled = (bool) (Config::get('meilisearchIndexPdfs') ?? Config::get('meilisearch_index_pdfs'));
+        if (!$pdfEnabled) {
             return;
         }
 
@@ -75,7 +66,10 @@ class IndexPageListener
             }
 
             foreach (preg_split('/\s+/', trim($src)) as $word) {
-                $keywords[] = $word;
+                $word = trim($word);
+                if ($word !== '') {
+                    $keywords[] = $word;
+                }
             }
         }
 
@@ -122,7 +116,7 @@ class IndexPageListener
         $pdfLinks = $this->findPdfLinks($content);
 
         // PDFs NUR auf öffentlichen Seiten indexieren
-        if ($pdfLinks !== [] && ($data['protected'] ?? 0) == 0) {
+        if ($pdfLinks !== [] && (int) ($data['protected'] ?? 0) === 0) {
             $this->pdfIndexService->handlePdfLinks($pdfLinks);
         }
     }

@@ -10,209 +10,180 @@ class PdfIndexService
 {
     private string $projectDir;
 
-    /** @var bool */
-    private bool $crawlInitialized = false;
+    // pro PHP-Process genau 1x resetten
+    private bool $didReset = false;
 
-    /** @var array<string, bool> */
-    private array $processedChecksums = [];
+    // pro Crawl-Durchlauf: doppelte Verarbeitung vermeiden
+    private array $seenThisCrawl = [];
 
     public function __construct(ParameterBagInterface $params)
     {
-        $this->projectDir = rtrim($params->get('kernel.project_dir'), '/');
+        $this->projectDir = rtrim((string) $params->get('kernel.project_dir'), '/');
     }
 
-    /* =====================================================
-     * PUBLIC API
-     * ===================================================== */
+    /**
+     * Wird aus dem Listener beim ersten Hook-Call pro Crawl aufgerufen.
+     * MUSS IMMER laufen (auch wenn Checkbox später aus ist).
+     */
+    public function resetTableOnce(): void
+    {
+        if ($this->didReset) {
+            return;
+        }
+
+        $this->didReset = true;
+        $this->seenThisCrawl = [];
+
+        // bei <=100 PDFs: sauber & simpel
+        Database::getInstance()->execute('TRUNCATE tl_search_pdf');
+
+        error_log('PDF Reset: tl_search_pdf geleert (TRUNCATE)');
+    }
 
     /**
-     * Einstiegspunkt aus dem IndexPageListener
-     *
-     * @param array<int,array{url:string,text?:string|null}> $pdfLinks
+     * @param array<int,array{url:string,linkText:?string}> $pdfLinks
      */
     public function handlePdfLinks(array $pdfLinks): void
     {
-        // 🔴 WICHTIG: Reset garantiert VOR dem ersten INSERT
-        $this->initializeCrawl();
+        foreach ($pdfLinks as $row) {
+            $url = (string) ($row['url'] ?? '');
+            $linkText = $row['linkText'] ?? null;
 
-        foreach ($pdfLinks as $pdf) {
+            if ($url === '') {
+                continue;
+            }
+
             try {
-                $url      = $pdf['url'];
-                $linkText = $pdf['text'] ?? null;
-
                 error_log('bearbeite PDF: ' . $url);
 
-                $relativePath = $this->normalizePdfUrl($url);
-                if ($relativePath === null) {
+                // innerhalb des Crawls gleiche URL nicht 20x parsen (News-Teaser etc.)
+                $seenKey = md5($url);
+                if (isset($this->seenThisCrawl[$seenKey])) {
+                    error_log('→ übersprungen: bereits im Crawl verarbeitet');
+                    continue;
+                }
+                $this->seenThisCrawl[$seenKey] = true;
+
+                $normalizedPath = $this->normalizePdfUrl($url);
+                if ($normalizedPath === null) {
                     error_log('→ übersprungen: kein gültiger PDF-Pfad');
                     continue;
                 }
 
-                $absolutePath = $this->projectDir . '/' . ltrim($relativePath, '/');
+                $absolutePath = $this->getAbsolutePath($normalizedPath);
                 if (!is_file($absolutePath)) {
-                    error_log('→ übersprungen: Datei existiert nicht');
+                    error_log('→ übersprungen: Datei existiert nicht: ' . $absolutePath);
                     continue;
                 }
 
-                // Datei-Zeitstempel
-                $mtime = filemtime($absolutePath) ?: 0;
+                $mtime = (int) (filemtime($absolutePath) ?: 0);
+                $checksum = md5($normalizedPath . '|' . $mtime);
 
-                // Stabiler Crawl-Checksum
-                $checksum = md5($relativePath . '|' . $mtime);
+                // Titel-Priorität:
+                // 1) Linktext
+                // 2) PDF-Metadaten Title
+                // 3) Dateiname
+                $pdfMetaTitle = $this->readPdfMetaTitle($absolutePath);
+                $title = $linkText ?: ($pdfMetaTitle ?: basename($absolutePath));
 
-                // Pro Crawl deduplizieren
-                if (isset($this->processedChecksums[$checksum])) {
-                    error_log('→ übersprungen: bereits im Crawl verarbeitet');
-                    continue;
-                }
-                $this->processedChecksums[$checksum] = true;
-
-                // Titel bestimmen
-                $title = $this->resolveTitle($absolutePath, $linkText);
-
-                // PDF parsen
                 $text = $this->parsePdf($absolutePath);
                 if ($text === '') {
                     error_log('→ übersprungen: PDF ohne Textinhalt');
                     continue;
                 }
 
-                // Schreiben
-                $this->insertPdf(
-                    $relativePath,
+                $this->upsertPdf(
+                    $normalizedPath,
                     $title,
                     $text,
                     $checksum,
                     $mtime
                 );
 
-                error_log('→ geschrieben in tl_search_pdf');
+                error_log('geschrieben in tl_search_pdf');
 
             } catch (\Throwable $e) {
                 error_log('PDF Service FEHLER: ' . $e->getMessage());
-                error_log($e->getTraceAsString());
             }
         }
     }
 
-    /* =====================================================
-     * CRAWL-LIFECYCLE
-     * ===================================================== */
-
-    private function initializeCrawl(): void
-    {
-        if ($this->crawlInitialized) {
-            return;
-        }
-
-        $this->crawlInitialized = true;
-        $this->processedChecksums = [];
-
-        Database::getInstance()->execute('TRUNCATE TABLE tl_search_pdf');
-
-        error_log('PDF Crawl initialisiert → tl_search_pdf geleert');
-    }
-
-    /* =====================================================
-     * URL-NORMALISIERUNG
-     * ===================================================== */
-
     private function normalizePdfUrl(string $url): ?string
     {
-        // Direkter /files-Link
-        if (str_starts_with($url, '/files/') && str_ends_with($url, '.pdf')) {
-            return $url;
+        // Fall 1: direkter /files/-Pfad
+        if (str_starts_with($url, '/files/') && preg_match('~\.pdf(\?.*)?$~i', $url)) {
+            return preg_replace('~\?.*$~', '', $url);
         }
 
-        // Contao Hash-/Download-Link (?p=)
         $decoded = html_entity_decode($url);
-        $parts   = parse_url($decoded);
+        $parts = parse_url($decoded);
 
-        if (!isset($parts['query'])) {
+        // Fall 2: absolute URL auf gleiche Site -> Pfad extrahieren
+        if (!empty($parts['path']) && str_starts_with($parts['path'], '/files/') && str_ends_with(strtolower($parts['path']), '.pdf')) {
+            return $parts['path'];
+        }
+
+        // Fall 3: Contao-Download-Link mit ?p=
+        if (empty($parts['query'])) {
             return null;
         }
 
         parse_str($parts['query'], $query);
 
         if (!empty($query['p'])) {
-            return '/files/' . ltrim($query['p'], '/');
+            $p = (string) $query['p'];
+            $p = rawurldecode($p);
+
+            // deine Links enthalten oft "pdf/DATEI.pdf"
+            // => wird zu "/files/pdf/DATEI.pdf"
+            return '/files/' . ltrim($p, '/');
         }
 
         return null;
     }
 
-    /* =====================================================
-     * TITEL-AUFLÖSUNG
-     * ===================================================== */
-
-    private function resolveTitle(string $absolutePath, ?string $linkText): string
+    private function getAbsolutePath(string $relativePath): string
     {
-        // 1. Linktext aus HTML
-        if (is_string($linkText) && trim($linkText) !== '') {
-            return trim($linkText);
-        }
-
-        // 2. PDF-Metadaten
-        try {
-            $parser = new Parser();
-            $pdf    = $parser->parseFile($absolutePath);
-            $details = $pdf->getDetails();
-
-            if (!empty($details['Title'])) {
-                return trim((string) $details['Title']);
-            }
-        } catch (\Throwable) {
-            // ignorieren
-        }
-
-        // 3. Fallback: Dateiname
-        return basename($absolutePath);
+        return $this->projectDir . '/' . ltrim($relativePath, '/');
     }
 
-    /* =====================================================
-     * DB
-     * ===================================================== */
+    private function upsertPdf(string $url, string $title, string $text, string $checksum, int $mtime): void
+    {
+        $db = Database::getInstance();
 
-    private function insertPdf(
-        string $url,
-        string $title,
-        string $text,
-        string $checksum,
-        int $mtime
-    ): void {
-        Database::getInstance()
-            ->prepare(
-                'INSERT INTO tl_search_pdf
-                 (tstamp, url, title, text, checksum, file_mtime)
-                 VALUES (?, ?, ?, ?, ?, ?)'
-            )
-            ->execute(
-                time(),
-                $url,
-                $title,
-                $text,
-                $checksum,
-                $mtime
-            );
+        // wichtig: UNIQUE(checksum) -> entweder INSERT oder UPDATE
+        $db->prepare('
+            INSERT INTO tl_search_pdf
+                (tstamp, url, title, text, checksum, file_mtime)
+            VALUES
+                (?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                tstamp=VALUES(tstamp),
+                url=VALUES(url),
+                title=VALUES(title),
+                text=VALUES(text),
+                file_mtime=VALUES(file_mtime)
+        ')->execute(
+            time(),
+            $url,
+            $title,
+            $text,
+            $checksum,
+            $mtime
+        );
     }
-
-    /* =====================================================
-     * PDF PARSING
-     * ===================================================== */
 
     private function parsePdf(string $absolutePath): string
     {
         try {
             $parser = new Parser();
-            $pdf    = $parser->parseFile($absolutePath);
+            $pdf = $parser->parseFile($absolutePath);
 
             $text = $this->cleanPdfContent($pdf->getText());
 
-            // Begrenzen (Performance + Relevanz)
             return mb_substr($text, 0, 5000);
 
-        } catch (\Throwable $e) {
-            error_log('PDF Parser FEHLER: ' . $e->getMessage());
+        } catch (\Throwable) {
             return '';
         }
     }
@@ -220,24 +191,38 @@ class PdfIndexService
     private function cleanPdfContent(string $text): string
     {
         if (class_exists(\Normalizer::class)) {
-            $text = \Normalizer::normalize($text, \Normalizer::FORM_C);
+            $text = \Normalizer::normalize($text, \Normalizer::FORM_C) ?? $text;
         }
 
-        // Sonderglyphen raus
+        $text = str_replace(["\r\n", "\r"], "\n", $text);
         $text = preg_replace('/[^\p{L}\p{N}\p{P}\p{Z}\n]/u', ' ', $text);
-
-        // Worttrennungen reparieren
-        $text = preg_replace('/(?<=\p{L})\s+(?=\p{L})/u', '', $text);
-
-        // Apostrophe normalisieren
-        $text = str_replace(["\\'", '’', '‘'], "'", $text);
-
-        // Mehrfache Satzzeichen
-        $text = preg_replace('/([.,;:!?])\1+/', '$1', $text);
-
-        // Whitespaces
+        $text = preg_replace('/(?<=\p{L})\s+(?=\p{L})/u', ' ', $text);
+        $text = str_replace(["\\'", "’", "‘"], "'", $text);
         $text = preg_replace('/\s+/u', ' ', $text);
 
         return trim($text);
+    }
+
+    private function readPdfMetaTitle(string $absolutePath): ?string
+    {
+        try {
+            $parser = new Parser();
+            $pdf = $parser->parseFile($absolutePath);
+
+            $details = $pdf->getDetails();
+
+            foreach (['Title', 'title'] as $key) {
+                if (!empty($details[$key]) && is_string($details[$key])) {
+                    $t = trim($details[$key]);
+                    if ($t !== '') {
+                        return $t;
+                    }
+                }
+            }
+        } catch (\Throwable) {
+            // ignore
+        }
+
+        return null;
     }
 }
