@@ -7,12 +7,10 @@ use MummertMedia\ContaoMeilisearchBundle\Service\PdfIndexService;
 
 class IndexPageListener
 {
-    public function __construct(
-        private PdfIndexService $pdfIndexService
-    ) {}
+    private ?PdfIndexService $pdfIndexService = null;
+
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
-        $this->pdfIndexService->startCrawl();
         // Marker vorhanden?
         if (!str_contains($content, 'MEILISEARCH_JSON')) {
             return;
@@ -98,18 +96,27 @@ class IndexPageListener
 
         /*
          * =====================
-         * PDF-ERKENNUNG (DEBUG)
+         * PDF-ERKENNUNG
          * =====================
          */
         $pdfLinks = $this->findPdfLinks($content);
 
         if ($pdfLinks !== []) {
-            $this->pdfIndexService->startCrawl();
             error_log('PDF gefunden');
+
+            // PdfIndexService lazy aus dem Container holen
+            if ($this->pdfIndexService === null) {
+                $this->pdfIndexService = System::getContainer()->get(PdfIndexService::class);
+            }
+
+            $this->pdfIndexService->startCrawl();
             $this->pdfIndexService->handlePdfLinks($pdfLinks);
         }
     }
 
+    /* =====================================================
+     * JSON aus Marker extrahieren
+     * ===================================================== */
     private function extractMeilisearchJson(string $content): ?array
     {
         if (!preg_match('/<!--\s*MEILISEARCH_JSON\s*(\{.*?\})\s*-->/s', $content, $m)) {
@@ -122,6 +129,9 @@ class IndexPageListener
         return is_array($data) ? $data : null;
     }
 
+    /* =====================================================
+     * PDF-Links im Markup finden
+     * ===================================================== */
     private function findPdfLinks(string $content): array
     {
         if (!preg_match_all(
@@ -132,6 +142,8 @@ class IndexPageListener
             return [];
         }
 
-        return array_unique(array_map('html_entity_decode', $matches[1]));
+        return array_unique(
+            array_map('html_entity_decode', $matches[1])
+        );
     }
 }
