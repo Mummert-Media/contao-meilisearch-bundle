@@ -11,50 +11,52 @@ class PdfIndexService
     public function handlePdfLinks(array $pdfLinks): void
     {
         error_log('PDF Service aufgerufen');
+        error_log('PDF Links Count: ' . count($pdfLinks));
+        error_log('PDF Links: ' . json_encode($pdfLinks, JSON_UNESCAPED_SLASHES));
 
         foreach ($pdfLinks as $url) {
-            error_log('bearbeite PDF: ' . $url);
+            try {
+                error_log('bearbeite PDF: ' . $url);
 
-            $normalizedUrl = $this->normalizePdfUrl($url);
-            if ($normalizedUrl === null) {
-                error_log('→ PDF übersprungen (URL nicht normalisierbar)');
-                continue;
+                $normalizedUrl = $this->normalizePdfUrl($url);
+                error_log('umgewandelte URL: ' . var_export($normalizedUrl, true));
+
+                if ($normalizedUrl === null) {
+                    error_log('→ übersprungen: normalizePdfUrl() == null');
+                    continue;
+                }
+
+                $absolutePath = $this->getAbsolutePath($normalizedUrl);
+                error_log('absoluter Pfad: ' . var_export($absolutePath, true));
+
+                if ($absolutePath === null || !is_file($absolutePath)) {
+                    error_log('→ übersprungen: Datei nicht gefunden');
+                    continue;
+                }
+
+                $mtime = filemtime($absolutePath) ?: 0;
+                $checksum = md5($normalizedUrl . $mtime);
+
+                if ($this->alreadyIndexed($checksum)) {
+                    error_log('→ übersprungen: bereits indexiert');
+                    continue;
+                }
+
+                $title = basename($absolutePath);
+                error_log('gefundener Title: ' . $title);
+
+                $text = $this->parsePdf($absolutePath);
+                if ($text === '') {
+                    error_log('→ übersprungen: parsePdf() leer');
+                    continue;
+                }
+
+                $this->insertPdf($normalizedUrl, $title, $text, $checksum, $mtime);
+                error_log('geschrieben in tl_search_pdf');
+            } catch (\Throwable $e) {
+                error_log('PDF Service FEHLER (pro PDF): ' . $e->getMessage());
+                error_log($e->getTraceAsString());
             }
-
-            error_log('umgewandelte URL: ' . $normalizedUrl);
-
-            $absolutePath = $this->getAbsolutePath($normalizedUrl);
-            if ($absolutePath === null || !is_file($absolutePath)) {
-                error_log('→ PDF übersprungen (Datei nicht gefunden): ' . $absolutePath);
-                continue;
-            }
-
-            $mtime = filemtime($absolutePath) ?: 0;
-            $checksum = md5($normalizedUrl . $mtime);
-
-            if ($this->alreadyIndexed($checksum)) {
-                error_log('→ PDF bereits indexiert (Checksumme vorhanden)');
-                continue;
-            }
-
-            $title = basename($absolutePath);
-            error_log('gefundener Title: ' . $title);
-
-            $text = $this->parsePdf($absolutePath);
-            if ($text === '') {
-                error_log('→ PDF übersprungen (kein Text extrahiert)');
-                continue;
-            }
-
-            $this->insertPdf(
-                $normalizedUrl,
-                $title,
-                $text,
-                $checksum,
-                $mtime
-            );
-
-            error_log('geschrieben in tl_search_pdf');
         }
     }
 
