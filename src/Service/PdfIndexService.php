@@ -3,11 +3,22 @@
 namespace MummertMedia\ContaoMeilisearchBundle\Service;
 
 use Contao\Database;
-use Contao\StringUtil;
 use Smalot\PdfParser\Parser;
+use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 
 class PdfIndexService
 {
+    private string $projectDir;
+
+    public function __construct(ParameterBagInterface $params)
+    {
+        // Contao 5 / Symfony-konform
+        $this->projectDir = rtrim($params->get('kernel.project_dir'), '/');
+    }
+
+    /**
+     * Einstiegspunkt aus dem IndexPageListener
+     */
     public function handlePdfLinks(array $pdfLinks): void
     {
         error_log('PDF Service aufgerufen');
@@ -18,24 +29,24 @@ class PdfIndexService
             try {
                 error_log('bearbeite PDF: ' . $url);
 
-                $normalizedUrl = $this->normalizePdfUrl($url);
-                error_log('umgewandelte URL: ' . var_export($normalizedUrl, true));
+                $normalizedPath = $this->normalizePdfUrl($url);
+                error_log('umgewandelte URL: ' . var_export($normalizedPath, true));
 
-                if ($normalizedUrl === null) {
-                    error_log('→ übersprungen: normalizePdfUrl() == null');
+                if ($normalizedPath === null) {
+                    error_log('→ übersprungen: kein gültiger PDF-Pfad');
                     continue;
                 }
 
-                $absolutePath = $this->getAbsolutePath($normalizedUrl);
+                $absolutePath = $this->getAbsolutePath($normalizedPath);
                 error_log('absoluter Pfad: ' . var_export($absolutePath, true));
 
-                if ($absolutePath === null || !is_file($absolutePath)) {
-                    error_log('→ übersprungen: Datei nicht gefunden');
+                if (!is_file($absolutePath)) {
+                    error_log('→ übersprungen: Datei existiert nicht');
                     continue;
                 }
 
                 $mtime = filemtime($absolutePath) ?: 0;
-                $checksum = md5($normalizedUrl . $mtime);
+                $checksum = md5($normalizedPath . $mtime);
 
                 if ($this->alreadyIndexed($checksum)) {
                     error_log('→ übersprungen: bereits indexiert');
@@ -47,12 +58,20 @@ class PdfIndexService
 
                 $text = $this->parsePdf($absolutePath);
                 if ($text === '') {
-                    error_log('→ übersprungen: parsePdf() leer');
+                    error_log('→ übersprungen: PDF ohne Textinhalt');
                     continue;
                 }
 
-                $this->insertPdf($normalizedUrl, $title, $text, $checksum, $mtime);
+                $this->insertPdf(
+                    $normalizedPath,
+                    $title,
+                    $text,
+                    $checksum,
+                    $mtime
+                );
+
                 error_log('geschrieben in tl_search_pdf');
+
             } catch (\Throwable $e) {
                 error_log('PDF Service FEHLER (pro PDF): ' . $e->getMessage());
                 error_log($e->getTraceAsString());
@@ -61,63 +80,61 @@ class PdfIndexService
     }
 
     /* =====================================================
-     * PDF-Parsing
+     * URL → relativer /files-Pfad
      * ===================================================== */
-
-    private function parsePdf(string $absolutePath): string
+    private function normalizePdfUrl(string $url): ?string
     {
-        try {
-            $parser = new Parser();
-            $pdf = $parser->parseFile($absolutePath);
+        $url = html_entity_decode($url);
 
-            $text = $this->cleanPdfContent($pdf->getText());
-
-            return mb_substr($text, 0, 5000);
-        } catch (\Throwable $e) {
-            error_log('→ Fehler beim Parsen der PDF: ' . $e->getMessage());
-            return '';
+        // direkter /files/*.pdf-Link
+        $path = parse_url($url, PHP_URL_PATH);
+        if ($path && preg_match('~^/files/.*\.pdf$~i', $path)) {
+            return $path;
         }
-    }
 
-    private function cleanPdfContent(string $content): string
-    {
-        $content = StringUtil::decodeEntities($content);
-        $content = preg_replace('/[\x00-\x1F\x7F]/u', ' ', $content);
-        $content = preg_replace('/\s+/u', ' ', $content);
-
-        return trim($content);
+        return null;
     }
 
     /* =====================================================
-     * DB
+     * relativer Pfad → absoluter Pfad
      * ===================================================== */
+    private function getAbsolutePath(string $relativePath): string
+    {
+        return $this->projectDir . '/' . ltrim($relativePath, '/');
+    }
 
+    /* =====================================================
+     * DB-Helfer
+     * ===================================================== */
     private function alreadyIndexed(string $checksum): bool
     {
-        $result = Database::getInstance()
-            ->prepare('SELECT id FROM tl_search_pdf WHERE checksum=?')
+        $db = Database::getInstance();
+
+        $result = $db
+            ->prepare('SELECT id FROM tl_search_pdf WHERE checksum = ?')
             ->execute($checksum);
 
         return $result->numRows > 0;
     }
 
     private function insertPdf(
-        string $url,
+        string $path,
         string $title,
         string $text,
         string $checksum,
         int $mtime
     ): void {
-        Database::getInstance()
+        $db = Database::getInstance();
+
+        $db
             ->prepare('
                 INSERT INTO tl_search_pdf
-                    (tstamp, url, title, text, checksum, file_mtime)
-                VALUES
-                    (?, ?, ?, ?, ?, ?)
+                    (tstamp, path, title, text, checksum, file_mtime)
+                VALUES (?, ?, ?, ?, ?, ?)
             ')
             ->execute(
                 time(),
-                $url,
+                $path,
                 $title,
                 $text,
                 $checksum,
@@ -126,53 +143,30 @@ class PdfIndexService
     }
 
     /* =====================================================
-     * URL & Pfad-Helfer
+     * PDF-Parsing
      * ===================================================== */
-
-    private function normalizePdfUrl(string $url): ?string
+    private function parsePdf(string $absolutePath): string
     {
-        $url = html_entity_decode($url);
+        try {
+            $parser = new Parser();
+            $pdf = $parser->parseFile($absolutePath);
 
-        // 1) direkter /files/*.pdf-Link (immer korrekt)
-        $path = parse_url($url, PHP_URL_PATH);
-        if ($path && preg_match('~^/files/.*\.pdf$~i', $path)) {
-            return $path;
+            $text = $this->cleanPdfContent($pdf->getText());
+
+            // bewusst begrenzen (Performance + Relevanz)
+            return mb_substr($text, 0, 5000);
+
+        } catch (\Throwable $e) {
+            error_log('PDF Parser FEHLER: ' . $e->getMessage());
+            return '';
         }
-
-        // 2) Query-Parameter prüfen
-        $query = parse_url($url, PHP_URL_QUERY);
-        if (!$query) {
-            return null;
-        }
-
-        parse_str($query, $params);
-
-        // 2a) Contao p=pdf/xyz.pdf
-        if (!empty($params['p']) && preg_match('~\.pdf$~i', $params['p'])) {
-            return '/files/' . ltrim($params['p'], '/');
-        }
-
-        // 2b) Contao Download: f=Dateiname → Dateisystem suchen
-        if (!empty($params['f'])) {
-            $file = basename($params['f']);
-
-            // Suche im /files-Verzeichnis (rekursiv, aber schnell genug)
-            $matches = glob(TL_ROOT . '/files/**/' . $file, GLOB_BRACE);
-
-            if (!empty($matches)) {
-                return str_replace(TL_ROOT, '', $matches[0]);
-            }
-        }
-
-        return null;
     }
 
-    private function getAbsolutePath(string $url): ?string
+    private function cleanPdfContent(string $content): string
     {
-        if (!str_starts_with($url, '/files/')) {
-            return null;
-        }
+        $content = preg_replace('/[\x00-\x1F\x7F]/u', ' ', $content);
+        $content = preg_replace('/\s+/u', ' ', $content);
 
-        return TL_ROOT . $url;
+        return trim($content);
     }
 }
