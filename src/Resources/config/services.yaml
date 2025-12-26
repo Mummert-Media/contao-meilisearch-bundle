@@ -1,7 +1,7 @@
 services:
   # EventListener + Service automatisch laden
   MummertMedia\ContaoMeilisearchBundle\:
-    resource: '../../*'
+    resource: '../../{Command,Cron,EventListener,Service}'
     autowire: true
     autoconfigure: true
     public: true
