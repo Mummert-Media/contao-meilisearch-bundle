@@ -4,12 +4,12 @@ services:
     autowire: true
     autoconfigure: true
 
-  # IndexPageListener als Contao-Hook
   MummertMedia\ContaoMeilisearchBundle\EventListener\IndexPageListener:
+    autowire: true
+    autoconfigure: false
     tags:
       - { name: contao.hook, hook: indexPage, method: onIndexPage }
 
-  # täglicher Reindex
   MummertMedia\ContaoMeilisearchBundle\Cron\MeilisearchIndexCron:
     tags:
       - { name: contao.cron, interval: daily }
