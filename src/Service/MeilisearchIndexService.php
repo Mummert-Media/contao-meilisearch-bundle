@@ -3,6 +3,7 @@
 namespace MummertMedia\ContaoMeilisearchBundle\Service;
 
 use Contao\Config;
+use Contao\CoreBundle\Framework\ContaoFramework;
 use Doctrine\DBAL\Connection;
 use Meilisearch\Client;
 
@@ -13,19 +14,27 @@ class MeilisearchIndexService
 
     public function __construct(
         private readonly Connection $connection,
-    ) {
-        $host = Config::get('meilisearch_host');
-        $apiKey = Config::get('meilisearch_api_write');
-        $this->indexName = Config::get('meilisearch_index');
-
-        $this->client = new Client($host, $apiKey);
-    }
+        private readonly ContaoFramework $framework,
+    ) {}
 
     /**
      * Entry point for command & cron
      */
     public function run(): void
     {
+        // Contao vollständig initialisieren (CLI & Cron!)
+        $this->framework->initialize();
+
+        $host = (string) Config::get('meilisearch_host');
+        $apiKey = (string) Config::get('meilisearch_api_write');
+        $this->indexName = (string) Config::get('meilisearch_index');
+
+        if ($host === '' || $this->indexName === '') {
+            throw new \RuntimeException('Meilisearch is not configured in tl_settings.');
+        }
+
+        $this->client = new Client($host, $apiKey);
+
         $index = $this->client->index($this->indexName);
 
         // 1. kompletten Index löschen
@@ -38,15 +47,9 @@ class MeilisearchIndexService
         $this->indexTlSearchPdf($index);
     }
 
-    /**
-     * Indexiert Seiten, Events und News aus tl_search
-     */
     private function indexTlSearch($index): void
     {
-        $rows = $this->connection->fetchAllAssociative(
-            'SELECT * FROM tl_search'
-        );
-
+        $rows = $this->connection->fetchAllAssociative('SELECT * FROM tl_search');
         if (!$rows) {
             return;
         }
@@ -71,15 +74,9 @@ class MeilisearchIndexService
         $index->addDocuments($documents);
     }
 
-    /**
-     * Indexiert PDFs aus tl_search_pdf
-     */
     private function indexTlSearchPdf($index): void
     {
-        $rows = $this->connection->fetchAllAssociative(
-            'SELECT * FROM tl_search_pdf'
-        );
-
+        $rows = $this->connection->fetchAllAssociative('SELECT * FROM tl_search_pdf');
         if (!$rows) {
             return;
         }
@@ -87,7 +84,9 @@ class MeilisearchIndexService
         $documents = [];
 
         foreach ($rows as $row) {
-            $fileType = $row['type'] ?: 'pdf';
+            $fileType = in_array($row['type'], ['pdf','docx','xlsx','pptx'], true)
+                ? $row['type']
+                : 'pdf';
 
             $documents[] = [
                 'id'       => $fileType . '_' . $row['id'],
@@ -104,11 +103,6 @@ class MeilisearchIndexService
         $index->addDocuments($documents);
     }
 
-    /**
-     * Robuste Typ-Erkennung ausschließlich über tl_search.meta
-     *
-     * @return page|event|news
-     */
     private function detectTypeFromMeta(?string $meta): string
     {
         if (!$meta) {
@@ -125,12 +119,12 @@ class MeilisearchIndexService
                 continue;
             }
 
-            switch ($entry['@type']) {
-                case 'https://schema.org/Event':
-                    return 'event';
+            if ($entry['@type'] === 'https://schema.org/Event') {
+                return 'event';
+            }
 
-                case 'https://schema.org/NewsArticle':
-                    return 'news';
+            if ($entry['@type'] === 'https://schema.org/NewsArticle') {
+                return 'news';
             }
         }
 
