@@ -7,6 +7,7 @@ use Contao\CalendarEventsModel;
 use Contao\NewsModel;
 use Contao\StringUtil;
 use Contao\Config;
+use Contao\FilesModel;
 
 class MeilisearchPageMarkerListener
 {
@@ -20,7 +21,7 @@ class MeilisearchPageMarkerListener
 
         /*
          * =====================
-         * PAGE
+         * PAGE (Basisdaten)
          * =====================
          */
         $pageImageUuid = null;
@@ -38,6 +39,7 @@ class MeilisearchPageMarkerListener
                 $data['page']['keywords'] = trim((string) $page->keywords);
             }
 
+            // tl_page.searchimage ist bereits UUID-STRING
             if (!empty($page->searchimage)) {
                 $pageImageUuid = $page->searchimage;
             }
@@ -60,12 +62,12 @@ class MeilisearchPageMarkerListener
              * EVENT
              */
             if (preg_match('#"@type"\s*:\s*"Event"#', $json)) {
-                $data['event'] ??= [];
-
                 if (preg_match('#\\\/schema\\\/events\\\/(\d+)#', $json, $m)) {
                     $event = CalendarEventsModel::findByPk((int) $m[1]);
 
                     if ($event !== null) {
+                        $data['event'] = [];
+
                         if (!empty($event->priority)) {
                             $data['event']['priority'] = (int) $event->priority;
                         }
@@ -75,13 +77,10 @@ class MeilisearchPageMarkerListener
                         }
 
                         if ($event->addImage && !empty($event->singleSRC)) {
+                            // singleSRC ist BINARY → binToUuid korrekt
                             $data['event']['searchimage'] = StringUtil::binToUuid($event->singleSRC);
                         }
                     }
-                }
-
-                if (preg_match('#"startDate"\s*:\s*"([^"]+)"#', $json, $dm)) {
-                    $data['event']['date'] = $dm[1];
                 }
             }
 
@@ -89,12 +88,12 @@ class MeilisearchPageMarkerListener
              * NEWS
              */
             if (preg_match('#"@type"\s*:\s*"NewsArticle"#', $json)) {
-                $data['news'] ??= [];
-
                 if (preg_match('#\\\/schema\\\/news\\\/(\d+)#', $json, $m)) {
                     $news = NewsModel::findByPk((int) $m[1]);
 
                     if ($news !== null) {
+                        $data['news'] = [];
+
                         if (!empty($news->priority)) {
                             $data['news']['priority'] = (int) $news->priority;
                         }
@@ -104,42 +103,64 @@ class MeilisearchPageMarkerListener
                         }
 
                         if ($news->addImage && !empty($news->singleSRC)) {
+                            // singleSRC ist BINARY → binToUuid korrekt
                             $data['news']['searchimage'] = StringUtil::binToUuid($news->singleSRC);
                         }
                     }
                 }
-
-                if (preg_match('#"datePublished"\s*:\s*"([^"]+)"#', $json, $dm)) {
-                    $data['news']['date'] = $dm[1];
-                }
             }
         }
 
         /*
-         * CUSTOM SEARCHIMAGE (Markup)
+         * =====================
+         * FINALE SEARCHIMAGE-ENTSCHEIDUNG
+         * =====================
          */
-        if (
-            preg_match('#data-searchimage-uuid="([a-f0-9\-]{36})"#i', $buffer, $m)
-        ) {
-            $data['custom']['searchimage'] = $m[1];
+        $finalSearchImageUuid = null;
+
+        // 1. EVENT > NEWS
+        if (!empty($data['event']['searchimage'])) {
+            $finalSearchImageUuid = $data['event']['searchimage'];
+        } elseif (!empty($data['news']['searchimage'])) {
+            $finalSearchImageUuid = $data['news']['searchimage'];
         }
 
-        /*
-         * PAGE IMAGE FALLBACK
-         */
-        if ($pageImageUuid) {
-            $data['page']['searchimage'] = $pageImageUuid;
-        } else {
+        // 2. CUSTOM SEARCHIMAGE (Markup)
+        if (
+            $finalSearchImageUuid === null
+            && preg_match('#data-searchimage-uuid="([a-f0-9\-]{36})"#i', $buffer, $m)
+            && FilesModel::findByUuid($m[1]) !== null
+        ) {
+            $finalSearchImageUuid = $m[1];
+        }
+
+        // 3. PAGE SEARCHIMAGE
+        if ($finalSearchImageUuid === null && $pageImageUuid) {
+            $finalSearchImageUuid = $pageImageUuid;
+        }
+
+        // 4. FALLBACK (tl_settings)
+        if ($finalSearchImageUuid === null) {
             $fallback = Config::get('meilisearch_fallback_image');
             if ($fallback) {
-                $data['page']['searchimage'] = StringUtil::binToUuid($fallback);
+                // fallback ist BINARY → binToUuid korrekt
+                $finalSearchImageUuid = StringUtil::binToUuid($fallback);
             }
+        }
+
+        if ($finalSearchImageUuid !== null) {
+            $data['page']['searchimage'] = $finalSearchImageUuid;
         }
 
         if ($data === []) {
             return $buffer;
         }
 
+        /*
+         * =====================
+         * MARKER AUSGEBEN
+         * =====================
+         */
         $marker =
             "\n<!--\nMEILISEARCH_JSON\n" .
             json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) .

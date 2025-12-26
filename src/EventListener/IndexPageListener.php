@@ -74,14 +74,12 @@ class IndexPageListener
                 /*
                  * IMAGEPATH (UUID)
                  */
-                $image =
-                    $parsed['event']['searchimage']  ?? null ??
-                    $parsed['news']['searchimage']   ?? null ??
-                    $parsed['page']['searchimage']   ?? null ??
-                    $parsed['custom']['searchimage'] ?? null;
-
-                if (is_string($image) && $image !== '') {
-                    $set['imagepath'] = trim($image);
+                if (
+                    isset($parsed['page']['searchimage'])
+                    && is_string($parsed['page']['searchimage'])
+                    && $parsed['page']['searchimage'] !== ''
+                ) {
+                    $set['imagepath'] = trim($parsed['page']['searchimage']);
                 }
 
                 /*
