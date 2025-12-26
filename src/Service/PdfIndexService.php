@@ -136,9 +136,6 @@ class PdfIndexService
             // Query-Parameter korrekt dekodieren
             $p = urldecode($p);
 
-            // Leerzeichen aus Query-Parametern wieder zu '+' normalisieren
-            $p = str_replace(' ', '+', $p);
-
             // deine Links enthalten oft "pdf/DATEI.pdf"
             // => wird zu "/files/pdf/DATEI.pdf"
             return '/files/' . ltrim($p, '/');

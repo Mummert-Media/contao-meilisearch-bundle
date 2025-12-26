@@ -112,9 +112,6 @@ class OfficeIndexService
                 // Query-Parameter korrekt dekodieren
                 $p = urldecode($p);
 
-                // Leerzeichen aus Query-Parametern wieder zu '+' normalisieren
-                $p = str_replace(' ', '+', $p);
-
                 $ext = strtolower(pathinfo($p, PATHINFO_EXTENSION));
 
                 if (in_array($ext, ['docx', 'xlsx', 'pptx'], true)) {
