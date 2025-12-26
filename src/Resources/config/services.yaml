@@ -1,7 +1,7 @@
 services:
   # EventListener + Service automatisch laden
   MummertMedia\ContaoMeilisearchBundle\:
-    resource: '../../{EventListener,Service}/*'
+    resource: '../../*'
     autowire: true
     autoconfigure: true
     public: true
@@ -10,3 +10,7 @@ services:
   MummertMedia\ContaoMeilisearchBundle\EventListener\IndexPageListener:
     tags:
       - { name: contao.hook, hook: indexPage, method: onIndexPage }
+      -
+  MummertMedia\ContaoMeilisearchBundle\Cron\MeilisearchIndexCron:
+    tags:
+      - { name: contao.cron, interval: daily }
