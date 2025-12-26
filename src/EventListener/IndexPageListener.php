@@ -5,119 +5,131 @@ namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 use Contao\Config;
 use Contao\System;
 use MummertMedia\ContaoMeilisearchBundle\Service\PdfIndexService;
+use MummertMedia\ContaoMeilisearchBundle\Service\OfficeIndexService;
 
 class IndexPageListener
 {
     private ?PdfIndexService $pdfIndexService = null;
+    private ?OfficeIndexService $officeIndexService = null;
 
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
         // ✅ IMMER: Service einmal pro Crawl holen + Tabelle einmal leeren
         if ($this->pdfIndexService === null) {
             $this->pdfIndexService = System::getContainer()->get(PdfIndexService::class);
-            $this->pdfIndexService->resetTableOnce(); // <- darf NICHT von Checkbox abhängen!
-        }
-
-        // ✅ Checkbox steuert nur die PDF-Suche/Indexierung (nicht den Reset!)
-        $pdfEnabled = (bool) (Config::get('meilisearchIndexPdfs') ?? Config::get('meilisearch_index_pdfs'));
-        if (!$pdfEnabled) {
-            return;
-        }
-
-        // Marker vorhanden?
-        if (!str_contains($content, 'MEILISEARCH_JSON')) {
-            return;
-        }
-
-        $parsed = $this->extractMeilisearchJson($content);
-        if ($parsed === null) {
-            return;
+            $this->pdfIndexService->resetTableOnce(); // darf NICHT von Checkboxen abhängen
         }
 
         /*
          * =====================
-         * PRIORITY
+         * SEITEN-METADATEN (IMMER)
          * =====================
          */
-        $priority =
-            $parsed['event']['priority'] ?? null ??
-            $parsed['news']['priority']  ?? null ??
-            $parsed['page']['priority']  ?? null;
+        if (str_contains($content, 'MEILISEARCH_JSON')) {
+            $parsed = $this->extractMeilisearchJson($content);
 
-        if ($priority !== null && $priority !== '') {
-            $set['priority'] = (int) $priority;
-        }
+            if (is_array($parsed)) {
 
-        /*
-         * =====================
-         * KEYWORDS
-         * =====================
-         */
-        $keywordSources = [
-            $parsed['event']['keywords'] ?? null,
-            $parsed['news']['keywords']  ?? null,
-            $parsed['page']['keywords']  ?? null,
-        ];
+                /*
+                 * PRIORITY
+                 */
+                $priority =
+                    $parsed['event']['priority'] ?? null ??
+                    $parsed['news']['priority']  ?? null ??
+                    $parsed['page']['priority']  ?? null;
 
-        $keywords = [];
-        foreach ($keywordSources as $src) {
-            if (!is_string($src) || trim($src) === '') {
-                continue;
-            }
+                if ($priority !== null && $priority !== '') {
+                    $set['priority'] = (int) $priority;
+                }
 
-            foreach (preg_split('/\s+/', trim($src)) as $word) {
-                $word = trim($word);
-                if ($word !== '') {
-                    $keywords[] = $word;
+                /*
+                 * KEYWORDS
+                 */
+                $keywordSources = [
+                    $parsed['event']['keywords'] ?? null,
+                    $parsed['news']['keywords']  ?? null,
+                    $parsed['page']['keywords']  ?? null,
+                ];
+
+                $keywords = [];
+                foreach ($keywordSources as $src) {
+                    if (!is_string($src) || trim($src) === '') {
+                        continue;
+                    }
+
+                    foreach (preg_split('/\s+/', trim($src)) as $word) {
+                        $word = trim($word);
+                        if ($word !== '') {
+                            $keywords[] = $word;
+                        }
+                    }
+                }
+
+                if ($keywords) {
+                    $set['keywords'] = implode(' ', array_unique($keywords));
+                }
+
+                /*
+                 * IMAGEPATH
+                 */
+                $image =
+                    $parsed['event']['searchimage']  ?? null ??
+                    $parsed['news']['searchimage']   ?? null ??
+                    $parsed['page']['searchimage']   ?? null ??
+                    $parsed['custom']['searchimage'] ?? null;
+
+                if (is_string($image) && $image !== '') {
+                    $set['imagepath'] = trim($image);
+                }
+
+                /*
+                 * STARTDATE
+                 */
+                $date =
+                    $parsed['event']['date'] ?? null ??
+                    $parsed['news']['date']  ?? null;
+
+                if (is_string($date) && $date !== '') {
+                    $ts = strtotime($date);
+                    if ($ts !== false) {
+                        $set['startDate'] = $ts;
+                    }
                 }
             }
         }
 
-        if ($keywords) {
-            $set['keywords'] = implode(' ', array_unique($keywords));
-        }
-
         /*
          * =====================
-         * IMAGEPATH
+         * PDF-INDEXIERUNG (OPTIONAL)
          * =====================
          */
-        $image =
-            $parsed['event']['searchimage']  ?? null ??
-            $parsed['news']['searchimage']   ?? null ??
-            $parsed['page']['searchimage']   ?? null ??
-            $parsed['custom']['searchimage'] ?? null;
+        $pdfEnabled = (bool) Config::get('meilisearch_index_pdfs');
+        if ($pdfEnabled && (int) ($data['protected'] ?? 0) === 0) {
 
-        if (is_string($image) && $image !== '') {
-            $set['imagepath'] = trim($image);
-        }
+            $pdfLinks = $this->findPdfLinks($content);
 
-        /*
-         * =====================
-         * STARTDATE
-         * =====================
-         */
-        $date =
-            $parsed['event']['date'] ?? null ??
-            $parsed['news']['date']  ?? null;
-
-        if (is_string($date) && $date !== '') {
-            $ts = strtotime($date);
-            if ($ts !== false) {
-                $set['startDate'] = $ts;
+            if ($pdfLinks !== []) {
+                $this->pdfIndexService->handlePdfLinks($pdfLinks);
             }
         }
 
         /*
          * =====================
-         * PDF-ERKENNUNG
+         * OFFICE-INDEXIERUNG (OPTIONAL)
          * =====================
          */
-        $pdfLinks = $this->findPdfLinks($content);
+        $officeEnabled = (bool) Config::get('meilisearch_index_office');
+        if ($officeEnabled && (int) ($data['protected'] ?? 0) === 0) {
 
-        // PDFs NUR auf öffentlichen Seiten indexieren
-        if ($pdfLinks !== [] && (int) ($data['protected'] ?? 0) === 0) {
-            $this->pdfIndexService->handlePdfLinks($pdfLinks);
+            if ($this->officeIndexService === null) {
+                $this->officeIndexService = System::getContainer()->get(OfficeIndexService::class);
+            }
+
+            $officeLinks = $this->findOfficeLinks($content);
+
+            if ($officeLinks !== []) {
+                $this->officeIndexService->handleOfficeLinks($officeLinks);
+            }
         }
     }
 
@@ -137,6 +149,28 @@ class IndexPageListener
     {
         if (!preg_match_all(
             '/<a\s+[^>]*href=["\']([^"\']*(?:\.pdf|p=pdf(?:%2F|\/)[^"\']*))["\'][^>]*>(.*?)<\/a>/is',
+            $content,
+            $matches
+        )) {
+            return [];
+        }
+
+        $result = [];
+
+        foreach ($matches[1] as $i => $href) {
+            $result[] = [
+                'url'      => html_entity_decode($href),
+                'linkText' => trim(strip_tags($matches[2][$i])) ?: null,
+            ];
+        }
+
+        return $result;
+    }
+
+    private function findOfficeLinks(string $content): array
+    {
+        if (!preg_match_all(
+            '/<a\s+[^>]*href=["\']([^"\']*(?:\.(?:docx|xlsx|pptx)|p=(?:docx|xlsx|pptx)(?:%2F|\/)[^"\']*))["\'][^>]*>(.*?)<\/a>/is',
             $content,
             $matches
         )) {
