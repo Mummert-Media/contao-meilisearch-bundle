@@ -74,16 +74,14 @@ class MeilisearchImageHelper
 
             if ($image === null) {
                 error_log('[MeiliImg] figure->getImage() = NULL');
-                error_log('--- MeiliImg END ---');
                 return null;
             }
 
-            $url = $image->getUrl();
+            $src = $image->getImageSrc();
 
-            error_log('[MeiliImg] image->getUrl() = ' . var_export($url, true));
-            error_log('--- MeiliImg END ---');
+            error_log('[MeiliImg] image->getImageSrc() = ' . $src);
 
-            return $url ?: null;
+            return $src ?: null;
 
         } catch (\Throwable $e) {
             error_log('[MeiliImg] EXCEPTION ' . get_class($e) . ': ' . $e->getMessage());
