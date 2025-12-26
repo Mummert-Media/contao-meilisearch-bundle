@@ -11,6 +11,7 @@ $GLOBALS['TL_DCA']['tl_search_pdf'] = [
                 'checksum' => 'unique',
                 'page_id'  => 'index',
                 'url'      => 'index',
+                'type'     => 'index', // ⬅️ NEU
             ],
         ],
     ],
@@ -25,7 +26,14 @@ $GLOBALS['TL_DCA']['tl_search_pdf'] = [
         ],
 
         /*
-         * Absolute oder normalisierte PDF-URL
+         * Dateityp: pdf | docx | xlsx | pptx
+         */
+        'type' => [ // ⬅️ NEU
+            'sql' => "varchar(16) NOT NULL default 'pdf'",
+        ],
+
+        /*
+         * Absolute oder normalisierte Datei-URL
          * z. B. /files/pdf/foo.pdf
          */
         'url' => [
@@ -40,7 +48,7 @@ $GLOBALS['TL_DCA']['tl_search_pdf'] = [
         ],
 
         /*
-         * Geparster PDF-Text
+         * Geparster Datei-Text (PDF / Office)
          */
         'text' => [
             'sql' => "mediumtext NULL",
@@ -63,8 +71,8 @@ $GLOBALS['TL_DCA']['tl_search_pdf'] = [
         ],
 
         /*
-         * Dateizeitstempel der PDF
-         * → optional, aber extrem hilfreich
+         * Dateizeitstempel
+         * → wichtig für Re-Indexierung
          */
         'file_mtime' => [
             'sql' => "int(10) unsigned NOT NULL default 0",

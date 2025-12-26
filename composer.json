@@ -11,7 +11,10 @@
     "ezyang/htmlpurifier": "^4.19",
     "guzzlehttp/guzzle": "^7.10",
     "meilisearch/meilisearch-php": "^1.16",
-    "smalot/pdfparser": "^2.12"
+    "smalot/pdfparser": "^2.12",
+    "phpoffice/phpword": "^1.4",
+    "phpoffice/phpspreadsheet": "^5.3",
+    "phpoffice/phppresentation": "^1.2"
   },
   "autoload": {
     "psr-4": {

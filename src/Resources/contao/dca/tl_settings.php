@@ -78,6 +78,13 @@ $GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_index_pdfs'] = [
     'sql'       => "char(1) NOT NULL default '1'",
 ];
 
+$GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_index_office'] = [
+    'label'     => &$GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_office'],
+    'inputType' => 'checkbox',
+    'eval'      => ['tl_class' => 'w50'],
+    'sql'       => "char(1) NOT NULL default '0'",
+];
+
 /**
  * Palette
  */
@@ -90,4 +97,5 @@ PaletteManipulator::create()
     ->addField('meilisearch_fallback_image', 'meilisearch_legend')
     ->addField('meilisearch_index_past_events', 'meilisearch_legend')
     ->addField('meilisearch_index_pdfs', 'meilisearch_legend')
+    ->addField('meilisearch_index_office', 'meilisearch_legend')
     ->applyToPalette('default', 'tl_settings');

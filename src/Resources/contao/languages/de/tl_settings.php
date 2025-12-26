@@ -29,3 +29,6 @@ $GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_pdfs'] = [
     'PDFs indexieren',
     'Aktiviert die Indexierung von PDF-Dateien für die Suche.',
 ];
+
+$GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_office']
+    = ['Office-Dateien indexieren', 'DOCX, XLSX und PPTX in die Suche aufnehmen.'];
