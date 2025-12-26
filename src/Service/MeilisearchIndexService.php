@@ -66,8 +66,9 @@ class MeilisearchIndexService
                 'text'      => $row['text'],
                 'url'       => $row['url'],
                 'protected' => (bool) $row['protected'],
-                'pid'       => $row['pid'],
                 'checksum'  => $row['checksum'],
+                'keywords'  => $this->normalizeKeywords($row['keywords'] ?? ''),
+                'priority'  => (int) ($row['priority'] ?? 0),
             ];
         }
 
