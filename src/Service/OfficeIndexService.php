@@ -107,7 +107,14 @@ class OfficeIndexService
             parse_str($parts['query'], $query);
 
             if (!empty($query['p'])) {
-                $p = rawurldecode((string) $query['p']);
+                $p = (string) $query['p'];
+
+                // Query-Parameter korrekt dekodieren
+                $p = urldecode($p);
+
+                // Leerzeichen aus Query-Parametern wieder zu '+' normalisieren
+                $p = str_replace(' ', '+', $p);
+
                 $ext = strtolower(pathinfo($p, PATHINFO_EXTENSION));
 
                 if (in_array($ext, ['docx', 'xlsx', 'pptx'], true)) {
