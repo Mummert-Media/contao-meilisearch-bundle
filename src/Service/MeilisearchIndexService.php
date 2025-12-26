@@ -34,10 +34,18 @@ class MeilisearchIndexService
         }
 
         $this->client = new Client($host, $apiKey);
-
         $index = $this->client->index($this->indexName);
 
-        // 1. kompletten Index löschen
+        // 🔑 PRIMARY KEY EINMALIG FESTLEGEN
+        try {
+            $index->updateSettings([
+                'primaryKey' => 'id',
+            ]);
+        } catch (\Throwable) {
+            // bewusst ignorieren (Index existiert evtl. noch nicht oder Key ist bereits gesetzt)
+        }
+
+        // 1. kompletten Index löschen (Settings bleiben erhalten!)
         $index->deleteAllDocuments();
 
         // 2. tl_search indexieren
