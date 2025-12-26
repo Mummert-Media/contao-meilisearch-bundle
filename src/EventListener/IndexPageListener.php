@@ -3,22 +3,24 @@
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
 use Contao\Config;
-use Contao\System;
 use MummertMedia\ContaoMeilisearchBundle\Service\PdfIndexService;
 use MummertMedia\ContaoMeilisearchBundle\Service\OfficeIndexService;
 
 class IndexPageListener
 {
-    private ?PdfIndexService $pdfIndexService = null;
-    private ?OfficeIndexService $officeIndexService = null;
+    public function __construct(
+        private readonly PdfIndexService $pdfIndexService,
+        private readonly OfficeIndexService $officeIndexService,
+    ) {}
 
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
-        // ✅ IMMER: Service einmal pro Crawl holen + Tabelle einmal leeren
-        if ($this->pdfIndexService === null) {
-            $this->pdfIndexService = System::getContainer()->get(PdfIndexService::class);
-            $this->pdfIndexService->resetTableOnce(); // darf NICHT von Checkboxen abhängen
-        }
+        /*
+         * =====================
+         * PDF: Reset genau 1× pro Crawl
+         * =====================
+         */
+        $this->pdfIndexService->resetTableOnce();
 
         /*
          * =====================
@@ -70,7 +72,7 @@ class IndexPageListener
                 }
 
                 /*
-                 * IMAGEPATH
+                 * IMAGEPATH (UUID)
                  */
                 $image =
                     $parsed['event']['searchimage']  ?? null ??
@@ -83,7 +85,7 @@ class IndexPageListener
                 }
 
                 /*
-                 * STARTDATE
+                 * STARTDATE (für Sortierung)
                  */
                 $date =
                     $parsed['event']['date'] ?? null ??
@@ -103,11 +105,11 @@ class IndexPageListener
          * PDF-INDEXIERUNG (OPTIONAL)
          * =====================
          */
-        $pdfEnabled = (bool) Config::get('meilisearch_index_pdfs');
-        if ($pdfEnabled && (int) ($data['protected'] ?? 0) === 0) {
-
+        if (
+            (bool) Config::get('meilisearch_index_pdfs')
+            && (int) ($data['protected'] ?? 0) === 0
+        ) {
             $pdfLinks = $this->findPdfLinks($content);
-
             if ($pdfLinks !== []) {
                 $this->pdfIndexService->handlePdfLinks($pdfLinks);
             }
@@ -118,21 +120,20 @@ class IndexPageListener
          * OFFICE-INDEXIERUNG (OPTIONAL)
          * =====================
          */
-        $officeEnabled = (bool) Config::get('meilisearch_index_office');
-        if ($officeEnabled && (int) ($data['protected'] ?? 0) === 0) {
-
-            if ($this->officeIndexService === null) {
-                $this->officeIndexService = System::getContainer()->get(OfficeIndexService::class);
-            }
-
+        if (
+            (bool) Config::get('meilisearch_index_office')
+            && (int) ($data['protected'] ?? 0) === 0
+        ) {
             $officeLinks = $this->findOfficeLinks($content);
-
             if ($officeLinks !== []) {
                 $this->officeIndexService->handleOfficeLinks($officeLinks);
             }
         }
     }
 
+    /**
+     * Extrahiert MEILISEARCH_JSON aus HTML-Kommentar
+     */
     private function extractMeilisearchJson(string $content): ?array
     {
         if (!preg_match('/<!--\s*MEILISEARCH_JSON\s*(\{.*?\})\s*-->/s', $content, $m)) {
@@ -145,6 +146,11 @@ class IndexPageListener
         return is_array($data) ? $data : null;
     }
 
+    /**
+     * Findet PDF-Links im Content
+     *
+     * @return array<int,array{url:string,linkText:?string}>
+     */
     private function findPdfLinks(string $content): array
     {
         if (!preg_match_all(
@@ -167,6 +173,11 @@ class IndexPageListener
         return $result;
     }
 
+    /**
+     * Findet Office-Links (docx, xlsx, pptx) im Content
+     *
+     * @return array<int,array{url:string,linkText:?string}>
+     */
     private function findOfficeLinks(string $content): array
     {
         if (!preg_match_all(
