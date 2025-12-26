@@ -15,6 +15,7 @@ class MeilisearchIndexService
     public function __construct(
         private readonly Connection $connection,
         private readonly ContaoFramework $framework,
+        private readonly MeilisearchImageHelper $imageHelper,
     ) {}
 
     /**
@@ -67,7 +68,7 @@ class MeilisearchIndexService
         foreach ($rows as $row) {
             $type = $this->detectTypeFromMeta($row['meta'] ?? null);
 
-            $documents[] = [
+            $doc = [
                 'id'        => $type . '_' . $row['id'],
                 'type'      => $type,
                 'title'     => $row['title'],
@@ -78,6 +79,16 @@ class MeilisearchIndexService
                 'keywords'  => (string) ($row['keywords'] ?? ''),
                 'priority'  => (int) ($row['priority'] ?? 0),
             ];
+
+            // ✅ Bild aus UUID erzeugen (falls vorhanden)
+            if (!empty($row['imagepath'])) {
+                $imagePath = $this->imageHelper->resolveImagePath($row['imagepath']);
+                if ($imagePath !== null) {
+                    $doc['poster'] = $imagePath;
+                }
+            }
+
+            $documents[] = $doc;
         }
 
         $index->addDocuments($documents);
@@ -104,7 +115,7 @@ class MeilisearchIndexService
                 'id'       => $fileType . '_' . $row['id'],
                 'type'     => $fileType,
                 'title'    => $row['title'],
-                'text'     => $row['text'],   // ✅ korrekt
+                'text'     => $row['text'],
                 'url'      => $row['url'],
                 'checksum' => $row['checksum'],
             ];
@@ -112,6 +123,7 @@ class MeilisearchIndexService
 
         $index->addDocuments($documents);
     }
+
     private function detectTypeFromMeta(?string $meta): string
     {
         if (!$meta) {
