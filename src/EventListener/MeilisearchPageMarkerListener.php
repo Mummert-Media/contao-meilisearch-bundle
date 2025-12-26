@@ -39,7 +39,7 @@ class MeilisearchPageMarkerListener
             }
 
             if (!empty($page->searchimage)) {
-                $pageImageUuid = StringUtil::binToUuid($page->searchimage);
+                $pageImageUuid = $page->searchimage;
             }
         }
 
