@@ -23,7 +23,16 @@ $GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_index'] = [
     ],
 ];
 
-$GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_api'] = [
+$GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_api_write'] = [
+    'inputType' => 'text',
+    'eval' => [
+        'mandatory' => true,
+        'tl_class' => 'w50',
+        'hideInput' => true,
+    ],
+];
+
+$GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_api_search'] = [
     'inputType' => 'text',
     'eval' => [
         'mandatory' => true,
@@ -92,7 +101,8 @@ PaletteManipulator::create()
     ->addLegend('meilisearch_legend', null, PaletteManipulator::POSITION_AFTER, true)
     ->addField('meilisearch_host', 'meilisearch_legend')
     ->addField('meilisearch_index', 'meilisearch_legend')
-    ->addField('meilisearch_api', 'meilisearch_legend')
+    ->addField('meilisearch_api_write', 'meilisearch_legend')
+    ->addField('meilisearch_api_search', 'meilisearch_legend')
     ->addField('meilisearch_imagesize', 'meilisearch_legend')
     ->addField('meilisearch_fallback_image', 'meilisearch_legend')
     ->addField('meilisearch_index_past_events', 'meilisearch_legend')
