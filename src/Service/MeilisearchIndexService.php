@@ -76,7 +76,10 @@ class MeilisearchIndexService
 
     private function indexTlSearchPdf($index): void
     {
-        $rows = $this->connection->fetchAllAssociative('SELECT * FROM tl_search_pdf');
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT * FROM tl_search_pdf'
+        );
+
         if (!$rows) {
             return;
         }
@@ -84,7 +87,7 @@ class MeilisearchIndexService
         $documents = [];
 
         foreach ($rows as $row) {
-            $fileType = in_array($row['type'], ['pdf','docx','xlsx','pptx'], true)
+            $fileType = in_array($row['type'], ['pdf', 'docx', 'xlsx', 'pptx'], true)
                 ? $row['type']
                 : 'pdf';
 
@@ -92,17 +95,14 @@ class MeilisearchIndexService
                 'id'       => $fileType . '_' . $row['id'],
                 'type'     => $fileType,
                 'title'    => $row['title'],
-                'text'     => $row['content'],
+                'text'     => $row['text'],   // ✅ korrekt
                 'url'      => $row['url'],
-                'pid'      => $row['pid'],
                 'checksum' => $row['checksum'],
-                'filesrc'  => $row['filesrc'],
             ];
         }
 
         $index->addDocuments($documents);
     }
-
     private function detectTypeFromMeta(?string $meta): string
     {
         if (!$meta) {
