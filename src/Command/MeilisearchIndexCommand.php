@@ -9,7 +9,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 #[AsCommand(
     name: 'meilisearch:index',
-    description: 'Rebuild Meilisearch index'
+    description: 'Rebuild Meilisearch index from Contao search tables'
 )]
 class MeilisearchIndexCommand extends Command
 {
