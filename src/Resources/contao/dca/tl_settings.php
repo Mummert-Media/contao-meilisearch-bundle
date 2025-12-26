@@ -59,6 +59,8 @@ $GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_imagesize'] = [
         'chosen' => true,
         'includeBlankOption' => true,
     ],
+    // 🔥 DAS HAT GEFEHLT
+    'sql' => "int(10) unsigned NOT NULL default 0",
 ];
 
 $GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_index_past_events'] = [
