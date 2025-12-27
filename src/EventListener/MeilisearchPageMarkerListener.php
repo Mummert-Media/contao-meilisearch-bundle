@@ -4,7 +4,6 @@ namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
 use Contao\CalendarEventsModel;
 use Contao\Config;
-use Contao\FilesModel;
 use Contao\NewsModel;
 use Contao\PageModel;
 use Contao\StringUtil;
