@@ -9,13 +9,17 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 class MeilisearchIndexCommand extends Command
 {
-    protected static $defaultName = 'meilisearch:index';
-    protected static $defaultDescription = 'Rebuild Meilisearch index from Contao search tables';
-
     public function __construct(
         private readonly MeilisearchIndexService $indexService
     ) {
         parent::__construct();
+    }
+
+    protected function configure(): void
+    {
+        $this
+            ->setName('meilisearch:index')
+            ->setDescription('Rebuild Meilisearch index from Contao search tables');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
