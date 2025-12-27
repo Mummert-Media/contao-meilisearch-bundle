@@ -3,6 +3,7 @@
 namespace MummertMedia\ContaoMeilisearchBundle\Controller\FrontendModule;
 
 use Contao\CoreBundle\Controller\FrontendModule\AbstractFrontendModuleController;
+use Contao\CoreBundle\Twig\FragmentTemplate;
 use Contao\ModuleModel;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -10,16 +11,13 @@ use Symfony\Component\HttpFoundation\Response;
 class MeilisearchSearchController extends AbstractFrontendModuleController
 {
     protected function getResponse(
+        FragmentTemplate $template,
         ModuleModel $model,
-        string $section,
-        array $classes = null,
-        Request $request = null
+        Request $request
     ): Response {
-        return $this->render(
-            'mod_meilisearch_search.html.twig',
-            [
-                'meiliLimit' => (int) ($model->meiliLimit ?: 50),
-            ]
-        );
+        // Variablen an Twig übergeben
+        $template->set('meiliLimit', (int) ($model->meiliLimit ?: 50));
+
+        return $template->getResponse();
     }
 }
