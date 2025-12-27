@@ -2,7 +2,7 @@
 
 namespace MummertMedia\ContaoMeilisearchBundle\Controller\FrontendModule;
 
-use Contao\CoreBundle\Controller\AbstractFrontendModuleController;
+use Contao\CoreBundle\Controller\FrontendModule\AbstractFrontendModuleController;
 use Contao\ModuleModel;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
