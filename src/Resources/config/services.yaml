@@ -14,8 +14,10 @@ services:
       - { name: contao.hook, hook: indexPage, method: onIndexPage }
 
   MummertMedia\ContaoMeilisearchBundle\Cron\MeilisearchIndexCron:
+    autowire: true
+    autoconfigure: false
     tags:
-      - { name: contao.cron, interval: daily }
+      - { name: contao.cron, interval: daily, method: __invoke }
 
   MummertMedia\ContaoMeilisearchBundle\Controller\FrontendModule\MeilisearchSearchController:
     autowire: true
