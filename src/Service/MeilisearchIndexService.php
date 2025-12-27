@@ -6,6 +6,7 @@ use Contao\Config;
 use Contao\CoreBundle\Framework\ContaoFramework;
 use Doctrine\DBAL\Connection;
 use Meilisearch\Client;
+use Meilisearch\Endpoints\Indexes;
 
 class MeilisearchIndexService
 {
@@ -56,6 +57,9 @@ class MeilisearchIndexService
             // bewusst ignorieren (Index existiert evtl. noch nicht oder Key ist bereits gesetzt)
         }
 
+        // ✅ INDEX-SETTINGS SICHERSTELLEN
+        $this->ensureIndexSettings($index);
+
         // 1. kompletten Index löschen (Settings bleiben erhalten!)
         $index->deleteAllDocuments();
 
@@ -66,7 +70,24 @@ class MeilisearchIndexService
         $this->indexTlSearchPdf($index);
     }
 
-    private function indexTlSearch($index): void
+    /**
+     * Relevanz- & Sortierlogik für Meilisearch
+     */
+    private function ensureIndexSettings(Indexes $index): void
+    {
+        $index->updateSettings([
+            'searchableAttributes' => [
+                'title',
+                'keywords',
+                'text',
+            ],
+            'sortableAttributes' => [
+                'priority',
+            ],
+        ]);
+    }
+
+    private function indexTlSearch(Indexes $index): void
     {
         $rows = $this->connection->fetchAllAssociative('SELECT * FROM tl_search');
         if (!$rows) {
@@ -104,7 +125,7 @@ class MeilisearchIndexService
         $index->addDocuments($documents);
     }
 
-    private function indexTlSearchPdf($index): void
+    private function indexTlSearchPdf(Indexes $index): void
     {
         $rows = $this->connection->fetchAllAssociative(
             'SELECT * FROM tl_search_pdf'

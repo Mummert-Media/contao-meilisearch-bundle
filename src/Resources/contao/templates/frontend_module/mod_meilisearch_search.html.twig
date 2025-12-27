@@ -14,6 +14,7 @@ Contao 5 – Frontend Module Template
                 placeholder="Suche …"
                 autocomplete="off"
         >
+
         <button
                 type="button"
                 class="meilisearch-clear"
@@ -75,16 +76,21 @@ Contao 5 – Frontend Module Template
             try {
                 const response = await index.search(query, {
                     limit: limit,
+
                     attributesToRetrieve: [
                         'title',
                         'url',
                         'text',
                         'poster',
-                        'type'
+                        'priority'
                     ],
+
                     attributesToHighlight: ['text'],
-                    highlightPreTag: '<mark>',
-                    highlightPostTag: '</mark>'
+                    attributesToCrop: ['text'],
+                    cropLength: 50,
+                    cropMarker: '…',
+
+                    sort: ['priority:desc']
                 });
 
                 renderResults(response.hits);
@@ -107,7 +113,7 @@ Contao 5 – Frontend Module Template
             for (const hit of hits) {
 
                 const article = document.createElement('article');
-                article.className = 'meilisearch-result type-' + (hit.type || 'unknown');
+                article.className = 'meilisearch-result type-' + (hit.type || 'default');
 
                 const link = document.createElement('a');
                 link.href = hit.url || '#';
