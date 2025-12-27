@@ -22,3 +22,4 @@ services:
     autoconfigure: false
     tags:
       - { name: contao.frontend_module, type: meilisearch_search, category: search }
+      - { name: contao.asset.frontend, path: 'css/meilisearch.css' }
