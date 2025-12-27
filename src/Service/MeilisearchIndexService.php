@@ -83,6 +83,7 @@ class MeilisearchIndexService
             ],
             'sortableAttributes' => [
                 'priority',
+                'startDate',
             ],
         ]);
     }
@@ -94,10 +95,24 @@ class MeilisearchIndexService
             return;
         }
 
+        $indexPastEvents = (bool) Config::get('meilisearch_index_past_events');
+        $today = strtotime('today');
+
         $documents = [];
 
         foreach ($rows as $row) {
             $type = $this->detectTypeFromMeta($row['meta'] ?? null);
+
+            // 🛑 VERGANGENE EVENTS FILTERN
+            if ($type === 'event' && !$indexPastEvents) {
+                if (!empty($row['startDate'])) {
+                    $eventStart = (int) $row['startDate'];
+
+                    if ($eventStart < $today) {
+                        continue; // ⛔ Event überspringen
+                    }
+                }
+            }
 
             $doc = [
                 'id'        => $type . '_' . $row['id'],
@@ -111,7 +126,12 @@ class MeilisearchIndexService
                 'priority'  => (int) ($row['priority'] ?? 0),
             ];
 
-            // ✅ Bild aus UUID erzeugen (falls vorhanden)
+            // 📅 startDate nur für Events übernehmen
+            if ($type === 'event' && !empty($row['startDate'])) {
+                $doc['startDate'] = (int) $row['startDate'];
+            }
+
+            // 🖼️ Bild aus UUID erzeugen
             if (!empty($row['imagepath'])) {
                 $imagePath = $this->imageHelper->resolveImagePath($row['imagepath']);
                 if ($imagePath !== null) {
@@ -122,7 +142,9 @@ class MeilisearchIndexService
             $documents[] = $doc;
         }
 
-        $index->addDocuments($documents);
+        if ($documents !== []) {
+            $index->addDocuments($documents);
+        }
     }
 
     private function indexTlSearchPdf(Indexes $index): void
