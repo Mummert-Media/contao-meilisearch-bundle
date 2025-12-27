@@ -82,18 +82,16 @@ class IndexPageListener
                     $set['imagepath'] = trim($parsed['page']['searchimage']);
                 }
 
-                /*
-                 * STARTDATE
-                 */
-                $date =
-                    $parsed['event']['date'] ?? null ??
-                    $parsed['news']['date']  ?? null;
 
-                if (is_string($date) && $date !== '') {
-                    $ts = strtotime($date);
-                    if ($ts !== false) {
-                        $set['startDate'] = $ts;
-                    }
+                /*
+                 * STARTDATE (Unix Timestamp)
+                 */
+                $startDate =
+                    $parsed['event']['startDate'] ?? null ??
+                    $parsed['news']['startDate']  ?? null;
+
+                if (is_numeric($startDate) && (int) $startDate > 0) {
+                    $set['startDate'] = (int) $startDate;
                 }
 
                 /*
