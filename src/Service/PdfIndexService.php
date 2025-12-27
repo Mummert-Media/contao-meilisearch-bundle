@@ -23,7 +23,6 @@ class PdfIndexService
 
     /**
      * Wird aus dem Listener beim ersten Hook-Call pro Crawl aufgerufen.
-     * MUSS IMMER laufen (auch wenn Checkbox später aus ist).
      */
     public function resetTableOnce(): void
     {
@@ -34,10 +33,11 @@ class PdfIndexService
         $this->didReset = true;
         $this->seenThisCrawl = [];
 
-        // bei <=100 PDFs: sauber & simpel
-        Database::getInstance()->execute('TRUNCATE tl_search_pdf');
-
-        error_log('PDF Reset: tl_search_pdf geleert (TRUNCATE)');
+        try {
+            Database::getInstance()->execute('TRUNCATE tl_search_pdf');
+        } catch (\Throwable $e) {
+            error_log('[ContaoMeilisearch] PDF reset failed: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -54,25 +54,20 @@ class PdfIndexService
             }
 
             try {
-                error_log('bearbeite PDF: ' . $url);
-
-                // innerhalb des Crawls gleiche URL nicht 20x parsen (News-Teaser etc.)
+                // innerhalb des Crawls gleiche URL nicht mehrfach parsen
                 $seenKey = md5($url);
                 if (isset($this->seenThisCrawl[$seenKey])) {
-                    error_log('→ übersprungen: bereits im Crawl verarbeitet');
                     continue;
                 }
                 $this->seenThisCrawl[$seenKey] = true;
 
                 $normalizedPath = $this->normalizePdfUrl($url);
                 if ($normalizedPath === null) {
-                    error_log('→ übersprungen: kein gültiger PDF-Pfad');
                     continue;
                 }
 
                 $absolutePath = $this->getAbsolutePath($normalizedPath);
                 if (!is_file($absolutePath)) {
-                    error_log('→ übersprungen: Datei existiert nicht: ' . $absolutePath);
                     continue;
                 }
 
@@ -88,7 +83,6 @@ class PdfIndexService
 
                 $text = $this->parsePdf($absolutePath);
                 if ($text === '') {
-                    error_log('→ übersprungen: PDF ohne Textinhalt');
                     continue;
                 }
 
@@ -100,10 +94,10 @@ class PdfIndexService
                     $mtime
                 );
 
-                error_log('geschrieben in tl_search_pdf');
-
             } catch (\Throwable $e) {
-                error_log('PDF Service FEHLER: ' . $e->getMessage());
+                error_log(
+                    '[ContaoMeilisearch] PDF indexing failed for "' . $url . '": ' . $e->getMessage()
+                );
             }
         }
     }
@@ -118,8 +112,12 @@ class PdfIndexService
         $decoded = html_entity_decode($url);
         $parts = parse_url($decoded);
 
-        // Fall 2: absolute URL auf gleiche Site -> Pfad extrahieren
-        if (!empty($parts['path']) && str_starts_with($parts['path'], '/files/') && str_ends_with(strtolower($parts['path']), '.pdf')) {
+        // Fall 2: absolute URL auf gleiche Site
+        if (
+            !empty($parts['path'])
+            && str_starts_with($parts['path'], '/files/')
+            && str_ends_with(strtolower($parts['path']), '.pdf')
+        ) {
             return $parts['path'];
         }
 
@@ -131,13 +129,7 @@ class PdfIndexService
         parse_str($parts['query'], $query);
 
         if (!empty($query['p'])) {
-            $p = (string) $query['p'];
-
-            // Query-Parameter korrekt dekodieren
-            $p = urldecode($p);
-
-            // deine Links enthalten oft "pdf/DATEI.pdf"
-            // => wird zu "/files/pdf/DATEI.pdf"
+            $p = urldecode((string) $query['p']);
             return '/files/' . ltrim($p, '/');
         }
 
@@ -151,28 +143,33 @@ class PdfIndexService
 
     private function upsertPdf(string $url, string $title, string $text, string $checksum, int $mtime): void
     {
-        $db = Database::getInstance();
-
-        // wichtig: UNIQUE(checksum) -> entweder INSERT oder UPDATE
-        $db->prepare('
-            INSERT INTO tl_search_pdf
-                (tstamp, url, title, text, checksum, file_mtime)
-            VALUES
-                (?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE
-                tstamp=VALUES(tstamp),
-                url=VALUES(url),
-                title=VALUES(title),
-                text=VALUES(text),
-                file_mtime=VALUES(file_mtime)
-        ')->execute(
-            time(),
-            $url,
-            $title,
-            $text,
-            $checksum,
-            $mtime
-        );
+        try {
+            Database::getInstance()
+                ->prepare('
+                    INSERT INTO tl_search_pdf
+                        (tstamp, url, title, text, checksum, file_mtime)
+                    VALUES
+                        (?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        tstamp=VALUES(tstamp),
+                        url=VALUES(url),
+                        title=VALUES(title),
+                        text=VALUES(text),
+                        file_mtime=VALUES(file_mtime)
+                ')
+                ->execute(
+                    time(),
+                    $url,
+                    $title,
+                    $text,
+                    $checksum,
+                    $mtime
+                );
+        } catch (\Throwable $e) {
+            error_log(
+                '[ContaoMeilisearch] Failed to write PDF index entry (' . $url . '): ' . $e->getMessage()
+            );
+        }
     }
 
     private function parsePdf(string $absolutePath): string
@@ -184,8 +181,10 @@ class PdfIndexService
             $text = $this->cleanPdfContent($pdf->getText());
 
             return mb_substr($text, 0, 20000);
-
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            error_log(
+                '[ContaoMeilisearch] Failed to parse PDF "' . $absolutePath . '": ' . $e->getMessage()
+            );
             return '';
         }
     }
@@ -221,8 +220,10 @@ class PdfIndexService
                     }
                 }
             }
-        } catch (\Throwable) {
-            // ignore
+        } catch (\Throwable $e) {
+            error_log(
+                '[ContaoMeilisearch] Failed to read PDF metadata "' . $absolutePath . '": ' . $e->getMessage()
+            );
         }
 
         return null;

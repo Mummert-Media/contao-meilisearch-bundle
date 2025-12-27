@@ -34,19 +34,15 @@ class OfficeIndexService
             }
 
             try {
-                error_log('bearbeite Office-Datei: ' . $url);
-
                 // innerhalb des Crawls gleiche URL nicht mehrfach parsen
                 $seenKey = md5($url);
                 if (isset($this->seenThisCrawl[$seenKey])) {
-                    error_log('→ übersprungen: bereits im Crawl verarbeitet');
                     continue;
                 }
                 $this->seenThisCrawl[$seenKey] = true;
 
                 $normalized = $this->normalizeOfficeUrl($url);
                 if ($normalized === null) {
-                    error_log('→ übersprungen: kein gültiger Office-Pfad');
                     continue;
                 }
 
@@ -54,7 +50,6 @@ class OfficeIndexService
 
                 $absolutePath = $this->getAbsolutePath($relativePath);
                 if (!is_file($absolutePath)) {
-                    error_log('→ übersprungen: Datei existiert nicht: ' . $absolutePath);
                     continue;
                 }
 
@@ -65,7 +60,6 @@ class OfficeIndexService
 
                 $text = $this->parseOfficeFile($absolutePath, $type);
                 if ($text === '') {
-                    error_log('→ übersprungen: Office-Datei ohne Textinhalt');
                     continue;
                 }
 
@@ -78,10 +72,10 @@ class OfficeIndexService
                     $type
                 );
 
-                error_log('geschrieben in tl_search_pdf');
-
             } catch (\Throwable $e) {
-                error_log('Office Service FEHLER: ' . $e->getMessage());
+                error_log(
+                    '[ContaoMeilisearch] Office indexing failed for "' . $url . '": ' . $e->getMessage()
+                );
             }
         }
     }
@@ -107,11 +101,7 @@ class OfficeIndexService
             parse_str($parts['query'], $query);
 
             if (!empty($query['p'])) {
-                $p = (string) $query['p'];
-
-                // Query-Parameter korrekt dekodieren
-                $p = urldecode($p);
-
+                $p = urldecode((string) $query['p']);
                 $ext = strtolower(pathinfo($p, PATHINFO_EXTENSION));
 
                 if (in_array($ext, ['docx', 'xlsx', 'pptx'], true)) {
@@ -136,29 +126,35 @@ class OfficeIndexService
         int $mtime,
         string $type
     ): void {
-        $db = Database::getInstance();
-
-        $db->prepare('
-            INSERT INTO tl_search_pdf
-                (tstamp, type, url, title, text, checksum, file_mtime)
-            VALUES
-                (?, ?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE
-                tstamp=VALUES(tstamp),
-                type=VALUES(type),
-                url=VALUES(url),
-                title=VALUES(title),
-                text=VALUES(text),
-                file_mtime=VALUES(file_mtime)
-        ')->execute(
-            time(),
-            $type,
-            $url,
-            $title,
-            $text,
-            $checksum,
-            $mtime
-        );
+        try {
+            Database::getInstance()
+                ->prepare('
+                    INSERT INTO tl_search_pdf
+                        (tstamp, type, url, title, text, checksum, file_mtime)
+                    VALUES
+                        (?, ?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        tstamp=VALUES(tstamp),
+                        type=VALUES(type),
+                        url=VALUES(url),
+                        title=VALUES(title),
+                        text=VALUES(text),
+                        file_mtime=VALUES(file_mtime)
+                ')
+                ->execute(
+                    time(),
+                    $type,
+                    $url,
+                    $title,
+                    $text,
+                    $checksum,
+                    $mtime
+                );
+        } catch (\Throwable $e) {
+            error_log(
+                '[ContaoMeilisearch] Failed to write Office index entry (' . $url . '): ' . $e->getMessage()
+            );
+        }
     }
 
     private function parseOfficeFile(string $absolutePath, string $type): string
@@ -186,8 +182,10 @@ class OfficeIndexService
             }
 
             return $this->cleanText($text);
-
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            error_log(
+                '[ContaoMeilisearch] Failed to parse DOCX "' . $absolutePath . '": ' . $e->getMessage()
+            );
             return '';
         }
     }
@@ -205,8 +203,10 @@ class OfficeIndexService
             }
 
             return $this->cleanText($text);
-
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            error_log(
+                '[ContaoMeilisearch] Failed to parse XLSX "' . $absolutePath . '": ' . $e->getMessage()
+            );
             return '';
         }
     }
@@ -226,8 +226,10 @@ class OfficeIndexService
             }
 
             return $this->cleanText($text);
-
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            error_log(
+                '[ContaoMeilisearch] Failed to parse PPTX "' . $absolutePath . '": ' . $e->getMessage()
+            );
             return '';
         }
     }

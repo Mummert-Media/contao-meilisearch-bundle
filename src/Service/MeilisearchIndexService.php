@@ -34,26 +34,48 @@ class MeilisearchIndexService
      */
     public function run(): void
     {
-        $this->framework->initialize();
+        try {
+            $this->framework->initialize();
+        } catch (\Throwable $e) {
+            error_log('[ContaoMeilisearch] Framework initialization failed: ' . $e->getMessage());
+            return;
+        }
 
         $host = (string) Config::get('meilisearch_host');
         $apiKey = (string) Config::get('meilisearch_api_write');
         $this->indexName = (string) Config::get('meilisearch_index');
 
         if ($host === '' || $this->indexName === '') {
-            throw new \RuntimeException('Meilisearch is not configured in tl_settings.');
+            error_log('[ContaoMeilisearch] Meilisearch is not configured in tl_settings.');
+            return;
         }
 
-        $this->client = new Client($host, $apiKey);
-        $index = $this->client->index($this->indexName);
+        try {
+            $this->client = new Client($host, $apiKey);
+            $index = $this->client->index($this->indexName);
+        } catch (\Throwable $e) {
+            error_log('[ContaoMeilisearch] Failed to connect to Meilisearch: ' . $e->getMessage());
+            return;
+        }
 
         try {
             $index->updateSettings(['primaryKey' => 'id']);
-        } catch (\Throwable) {}
+        } catch (\Throwable $e) {
+            error_log('[ContaoMeilisearch] Failed to set primaryKey: ' . $e->getMessage());
+        }
 
-        $this->ensureIndexSettings($index);
+        try {
+            $this->ensureIndexSettings($index);
+        } catch (\Throwable $e) {
+            error_log('[ContaoMeilisearch] Failed to update index settings: ' . $e->getMessage());
+        }
 
-        $index->deleteAllDocuments();
+        try {
+            $index->deleteAllDocuments();
+        } catch (\Throwable $e) {
+            error_log('[ContaoMeilisearch] Failed to delete documents: ' . $e->getMessage());
+            return;
+        }
 
         $this->indexTlSearch($index);
         $this->indexTlSearchPdf($index);
@@ -78,7 +100,6 @@ class MeilisearchIndexService
             $text
         );
 
-        // Text normalisieren
         $text = preg_replace('/\s{2,}/u', ' ', $text);
         $text = preg_replace('/\n{2,}/u', "\n", $text);
 
@@ -121,7 +142,13 @@ class MeilisearchIndexService
      */
     private function indexTlSearch(Indexes $index): void
     {
-        $rows = $this->connection->fetchAllAssociative('SELECT * FROM tl_search');
+        try {
+            $rows = $this->connection->fetchAllAssociative('SELECT * FROM tl_search');
+        } catch (\Throwable $e) {
+            error_log('[ContaoMeilisearch] Failed to read tl_search: ' . $e->getMessage());
+            return;
+        }
+
         if (!$rows) {
             return;
         }
@@ -132,46 +159,58 @@ class MeilisearchIndexService
         $documents = [];
 
         foreach ($rows as $row) {
-            $type = $this->detectTypeFromMeta($row['meta'] ?? null);
+            try {
+                $type = $this->detectTypeFromMeta($row['meta'] ?? null);
 
-            $eventStart = null;
-            if ($type === 'event') {
-                $eventStart = $this->extractEventStartDate($row['meta'] ?? null);
-                if (!$indexPastEvents && $eventStart !== null && $eventStart < $today) {
-                    continue;
+                $eventStart = null;
+                if ($type === 'event') {
+                    $eventStart = $this->extractEventStartDate($row['meta'] ?? null);
+                    if (!$indexPastEvents && $eventStart !== null && $eventStart < $today) {
+                        continue;
+                    }
                 }
-            }
 
-            $cleanText = $this->stripMeilisearchMeta((string) $row['text']);
+                $cleanText = $this->stripMeilisearchMeta((string) $row['text']);
 
-            $doc = [
-                'id'        => $type . '_' . $row['id'],
-                'type'      => $type,
-                'title'     => $row['title'],
-                'text'      => $cleanText,
-                'url'       => $row['url'],
-                'protected' => (bool) $row['protected'],
-                'checksum'  => $row['checksum'],
-                'keywords'  => (string) ($row['keywords'] ?? ''),
-                'priority'  => (int) ($row['priority'] ?? 0),
-            ];
+                $doc = [
+                    'id'        => $type . '_' . $row['id'],
+                    'type'      => $type,
+                    'title'     => $row['title'],
+                    'text'      => $cleanText,
+                    'url'       => $row['url'],
+                    'protected' => (bool) $row['protected'],
+                    'checksum'  => $row['checksum'],
+                    'keywords'  => (string) ($row['keywords'] ?? ''),
+                    'priority'  => (int) ($row['priority'] ?? 0),
+                ];
 
-            if ($eventStart !== null) {
-                $doc['startDate'] = $eventStart;
-            }
-
-            if (!empty($row['imagepath'])) {
-                $imagePath = $this->imageHelper->resolveImagePath($row['imagepath']);
-                if ($imagePath !== null) {
-                    $doc['poster'] = $imagePath;
+                if ($eventStart !== null) {
+                    $doc['startDate'] = $eventStart;
                 }
-            }
 
-            $documents[] = $doc;
+                if (!empty($row['imagepath'])) {
+                    $imagePath = $this->imageHelper->resolveImagePath($row['imagepath']);
+                    if ($imagePath !== null) {
+                        $doc['poster'] = $imagePath;
+                    }
+                }
+
+                $documents[] = $doc;
+
+            } catch (\Throwable $e) {
+                error_log(
+                    '[ContaoMeilisearch] Failed to build document for tl_search ID '
+                    . ($row['id'] ?? '?') . ': ' . $e->getMessage()
+                );
+            }
         }
 
         if ($documents !== []) {
-            $index->addDocuments($documents);
+            try {
+                $index->addDocuments($documents);
+            } catch (\Throwable $e) {
+                error_log('[ContaoMeilisearch] Failed to add tl_search documents: ' . $e->getMessage());
+            }
         }
     }
 
@@ -180,7 +219,13 @@ class MeilisearchIndexService
      */
     private function indexTlSearchPdf(Indexes $index): void
     {
-        $rows = $this->connection->fetchAllAssociative('SELECT * FROM tl_search_pdf');
+        try {
+            $rows = $this->connection->fetchAllAssociative('SELECT * FROM tl_search_pdf');
+        } catch (\Throwable $e) {
+            error_log('[ContaoMeilisearch] Failed to read tl_search_pdf: ' . $e->getMessage());
+            return;
+        }
+
         if (!$rows) {
             return;
         }
@@ -188,23 +233,37 @@ class MeilisearchIndexService
         $documents = [];
 
         foreach ($rows as $row) {
-            $fileType = in_array($row['type'], ['pdf', 'docx', 'xlsx', 'pptx'], true)
-                ? $row['type']
-                : 'pdf';
+            try {
+                $fileType = in_array($row['type'], ['pdf', 'docx', 'xlsx', 'pptx'], true)
+                    ? $row['type']
+                    : 'pdf';
 
-            $documents[] = [
-                'id'       => $fileType . '_' . $row['id'],
-                'type'     => $fileType,
-                'title'    => $row['title'],
-                'text'     => $this->stripMeilisearchMeta((string) $row['text']),
-                'url'      => $row['url'],
-                'checksum' => $row['checksum'],
-                'poster'   => self::FILETYPE_ICON_MAP[$fileType]
-                    ?? self::FILETYPE_ICON_MAP['pdf'],
-            ];
+                $documents[] = [
+                    'id'       => $fileType . '_' . $row['id'],
+                    'type'     => $fileType,
+                    'title'    => $row['title'],
+                    'text'     => $this->stripMeilisearchMeta((string) $row['text']),
+                    'url'      => $row['url'],
+                    'checksum' => $row['checksum'],
+                    'poster'   => self::FILETYPE_ICON_MAP[$fileType]
+                        ?? self::FILETYPE_ICON_MAP['pdf'],
+                ];
+
+            } catch (\Throwable $e) {
+                error_log(
+                    '[ContaoMeilisearch] Failed to build PDF document for ID '
+                    . ($row['id'] ?? '?') . ': ' . $e->getMessage()
+                );
+            }
         }
 
-        $index->addDocuments($documents);
+        if ($documents !== []) {
+            try {
+                $index->addDocuments($documents);
+            } catch (\Throwable $e) {
+                error_log('[ContaoMeilisearch] Failed to add tl_search_pdf documents: ' . $e->getMessage());
+            }
+        }
     }
 
     private function detectTypeFromMeta(?string $meta): string
