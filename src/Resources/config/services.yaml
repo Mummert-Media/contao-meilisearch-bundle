@@ -13,3 +13,7 @@ services:
   MummertMedia\ContaoMeilisearchBundle\Cron\MeilisearchIndexCron:
     tags:
       - { name: contao.cron, interval: daily }
+
+  MummertMedia\ContaoMeilisearchBundle\Controller\FrontendModule\MeilisearchSearchController:
+    tags:
+      - { name: contao.frontend_module, type: meilisearch_search, category: search }
