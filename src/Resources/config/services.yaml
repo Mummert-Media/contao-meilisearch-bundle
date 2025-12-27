@@ -1,4 +1,7 @@
 services:
+  # Alias MUSS vorhanden sein (richtig platziert)
+  Psr\Container\ContainerInterface: '@service_container'
+
   MummertMedia\ContaoMeilisearchBundle\:
     resource: '../../{Command,Cron,EventListener,Service}'
     autowire: true
@@ -15,5 +18,7 @@ services:
       - { name: contao.cron, interval: daily }
 
   MummertMedia\ContaoMeilisearchBundle\Controller\FrontendModule\MeilisearchSearchController:
+    autowire: true
+    autoconfigure: false
     tags:
       - { name: contao.frontend_module, type: meilisearch_search, category: search }
