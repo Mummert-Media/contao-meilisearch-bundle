@@ -101,12 +101,20 @@ class MeilisearchIndexService
         }
 
         foreach ($data as $entry) {
-            if (
-                ($entry['@type'] ?? null) === 'https://schema.org/Event'
-                && !empty($entry['startDate'])
-            ) {
-                $timestamp = strtotime($entry['startDate']);
-                return $timestamp ?: null;
+            if (($entry['@type'] ?? null) !== 'https://schema.org/Event') {
+                continue;
+            }
+
+            // ✅ Contao-JSON-LD (vollqualifiziert)
+            if (!empty($entry['https://schema.org/startDate'])) {
+                $ts = strtotime($entry['https://schema.org/startDate']);
+                return $ts ?: null;
+            }
+
+            // 🛟 Fallback (falls Contao das irgendwann ändert)
+            if (!empty($entry['startDate'])) {
+                $ts = strtotime($entry['startDate']);
+                return $ts ?: null;
             }
         }
 
