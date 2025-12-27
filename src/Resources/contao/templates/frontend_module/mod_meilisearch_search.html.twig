@@ -1,6 +1,6 @@
 {#
 Meilisearch Frontend Search
-Default Twig template
+Contao 5 – Frontend Module Template
 #}
 
 <div
@@ -44,11 +44,11 @@ Default Twig template
         const limit = parseInt(wrapper.dataset.limit, 10) || 50;
 
         const client = new MeiliSearch({
-            host: '{{ config("meilisearch_host") }}',
-            apiKey: '{{ config("meilisearch_api_search") }}'
+            host: '{{ meiliHost }}',
+            apiKey: '{{ meiliSearchKey }}'
         });
 
-        const index = client.index('{{ config("meilisearch_index") }}');
+        const index = client.index('{{ meiliIndex }}');
 
         let abortController = null;
 
