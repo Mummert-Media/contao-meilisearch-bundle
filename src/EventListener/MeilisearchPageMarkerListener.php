@@ -50,8 +50,9 @@ class MeilisearchPageMarkerListener
 
             // tl_page.searchimage ist UUID-String
             if (!empty($page->searchimage)) {
-                $pageImageUuid = $page->searchimage;
+                $pageImageUuid = StringUtil::binToUuid($page->searchimage);
                 $debug[] = 'Page searchimage UUID gesetzt: ' . $pageImageUuid;
+            }
             }
         } else {
             $debug[] = 'objPage nicht gesetzt oder falscher Typ';
