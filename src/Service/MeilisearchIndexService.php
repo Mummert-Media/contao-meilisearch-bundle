@@ -12,6 +12,16 @@ class MeilisearchIndexService
     private Client $client;
     private string $indexName;
 
+    /**
+     * Statische Icons für Datei-Typen (Bundle-Assets)
+     */
+    private const FILETYPE_ICON_MAP = [
+        'pdf'  => '/bundles/contaomeilisearch/icons/filetype-pdf.svg',
+        'docx' => '/bundles/contaomeilisearch/icons/filetype-docx.svg',
+        'xlsx' => '/bundles/contaomeilisearch/icons/filetype-xlsx.svg',
+        'pptx' => '/bundles/contaomeilisearch/icons/filetype-pptx.svg',
+    ];
+
     public function __construct(
         private readonly Connection $connection,
         private readonly ContaoFramework $framework,
@@ -111,7 +121,7 @@ class MeilisearchIndexService
                 ? $row['type']
                 : 'pdf';
 
-            $documents[] = [
+            $doc = [
                 'id'       => $fileType . '_' . $row['id'],
                 'type'     => $fileType,
                 'title'    => $row['title'],
@@ -119,6 +129,12 @@ class MeilisearchIndexService
                 'url'      => $row['url'],
                 'checksum' => $row['checksum'],
             ];
+
+            // 🖼️ Icon als Poster setzen (Bundle-Asset)
+            $doc['poster'] = self::FILETYPE_ICON_MAP[$fileType]
+                ?? self::FILETYPE_ICON_MAP['pdf'];
+
+            $documents[] = $doc;
         }
 
         $index->addDocuments($documents);
