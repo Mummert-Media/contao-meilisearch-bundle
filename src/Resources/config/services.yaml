@@ -21,9 +21,4 @@ services:
     autowire: true
     autoconfigure: false
     tags:
-      - {
-        name: contao.frontend_module,
-        type: meilisearch_search,
-        category: search,
-        template: frontend_module/meilisearch_search
-      }
+      - { name: contao.frontend_module, type: meilisearch_search, category: search }
