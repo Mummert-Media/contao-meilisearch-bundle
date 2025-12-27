@@ -116,7 +116,7 @@ class IndexPageListener
             (bool) Config::get('meilisearch_index_pdfs')
             && (int) ($data['protected'] ?? 0) === 0
         ) {
-            $pdfLinks = $this->findPdfLinks($cleanContent);
+            $pdfLinks = $this->findPdfLinks($content);
             if ($pdfLinks !== []) {
                 $this->pdfIndexService->handlePdfLinks($pdfLinks);
             }
@@ -131,7 +131,7 @@ class IndexPageListener
             (bool) Config::get('meilisearch_index_office')
             && (int) ($data['protected'] ?? 0) === 0
         ) {
-            $officeLinks = $this->findOfficeLinks($cleanContent);
+            $officeLinks = $this->findOfficeLinks($content);
             if ($officeLinks !== []) {
                 $this->officeIndexService->handleOfficeLinks($officeLinks);
             }
