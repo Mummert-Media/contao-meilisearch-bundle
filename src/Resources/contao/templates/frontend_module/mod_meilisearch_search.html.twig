@@ -2,7 +2,7 @@
 Meilisearch Frontend Search
 Contao 5 – Frontend Module Template
 #}
-
+<!-- indexer::stop -->
 <div
         class="meilisearch-search"
         data-limit="{{ meiliLimit }}"
@@ -27,7 +27,7 @@ Contao 5 – Frontend Module Template
 
     <div id="meilisearch-results" class="meilisearch-results"></div>
 </div>
-
+<!-- indexer::continue -->
 <script type="module">
     import MeiliSearch from 'https://cdn.jsdelivr.net/npm/meilisearch@latest/dist/bundles/meilisearch.esm.js';
 

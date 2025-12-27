@@ -34,11 +34,10 @@ class MeilisearchIndexService
      */
     public function run(): void
     {
-        // Contao vollständig initialisieren (CLI & Cron!)
         $this->framework->initialize();
 
-        $host      = (string) Config::get('meilisearch_host');
-        $apiKey    = (string) Config::get('meilisearch_api_write');
+        $host = (string) Config::get('meilisearch_host');
+        $apiKey = (string) Config::get('meilisearch_api_write');
         $this->indexName = (string) Config::get('meilisearch_index');
 
         if ($host === '' || $this->indexName === '') {
@@ -48,42 +47,42 @@ class MeilisearchIndexService
         $this->client = new Client($host, $apiKey);
         $index = $this->client->index($this->indexName);
 
-        // 🔑 PRIMARY KEY EINMALIG FESTLEGEN
         try {
-            $index->updateSettings([
-                'primaryKey' => 'id',
-            ]);
-        } catch (\Throwable) {
-            // bewusst ignorieren
-        }
+            $index->updateSettings(['primaryKey' => 'id']);
+        } catch (\Throwable) {}
 
-        // ✅ Index-Settings sicherstellen
         $this->ensureIndexSettings($index);
 
-        // 🔄 Index leeren (Settings bleiben erhalten)
         $index->deleteAllDocuments();
 
-        // 📄 Inhalte indexieren
         $this->indexTlSearch($index);
         $this->indexTlSearchPdf($index);
     }
 
-    /**
-     * Relevanz- & Sortierlogik für Meilisearch
-     */
     private function ensureIndexSettings(Indexes $index): void
     {
         $index->updateSettings([
-            'searchableAttributes' => [
-                'title',
-                'keywords',
-                'text',
-            ],
-            'sortableAttributes' => [
-                'priority',
-                'startDate',
-            ],
+            'searchableAttributes' => ['title', 'keywords', 'text'],
+            'sortableAttributes'   => ['priority', 'startDate'],
         ]);
+    }
+
+    /**
+     * ⛔ MEILISEARCH_META aus Text entfernen
+     */
+    private function stripMeilisearchMeta(string $text): string
+    {
+        $text = preg_replace(
+            '/⟦MEILISEARCH_META⟧.*?⟦\/MEILISEARCH_META⟧/su',
+            '',
+            $text
+        );
+
+        // Text normalisieren
+        $text = preg_replace('/\s{2,}/u', ' ', $text);
+        $text = preg_replace('/\n{2,}/u', "\n", $text);
+
+        return trim($text);
     }
 
     /**
@@ -105,16 +104,12 @@ class MeilisearchIndexService
                 continue;
             }
 
-            // ✅ Contao-JSON-LD (vollqualifiziert)
             if (!empty($entry['https://schema.org/startDate'])) {
-                $ts = strtotime($entry['https://schema.org/startDate']);
-                return $ts ?: null;
+                return strtotime($entry['https://schema.org/startDate']) ?: null;
             }
 
-            // 🛟 Fallback (falls Contao das irgendwann ändert)
             if (!empty($entry['startDate'])) {
-                $ts = strtotime($entry['startDate']);
-                return $ts ?: null;
+                return strtotime($entry['startDate']) ?: null;
             }
         }
 
@@ -139,22 +134,21 @@ class MeilisearchIndexService
         foreach ($rows as $row) {
             $type = $this->detectTypeFromMeta($row['meta'] ?? null);
 
-            // 📅 Event-Startdatum einmal ermitteln
             $eventStart = null;
             if ($type === 'event') {
                 $eventStart = $this->extractEventStartDate($row['meta'] ?? null);
-
-                // ⛔ Vergangene Events überspringen (wenn nicht erlaubt)
                 if (!$indexPastEvents && $eventStart !== null && $eventStart < $today) {
                     continue;
                 }
             }
 
+            $cleanText = $this->stripMeilisearchMeta((string) $row['text']);
+
             $doc = [
                 'id'        => $type . '_' . $row['id'],
                 'type'      => $type,
                 'title'     => $row['title'],
-                'text'      => $row['text'],
+                'text'      => $cleanText,
                 'url'       => $row['url'],
                 'protected' => (bool) $row['protected'],
                 'checksum'  => $row['checksum'],
@@ -162,12 +156,10 @@ class MeilisearchIndexService
                 'priority'  => (int) ($row['priority'] ?? 0),
             ];
 
-            // 📅 startDate nur für Events setzen
             if ($eventStart !== null) {
                 $doc['startDate'] = $eventStart;
             }
 
-            // 🖼️ Bild aus UUID erzeugen
             if (!empty($row['imagepath'])) {
                 $imagePath = $this->imageHelper->resolveImagePath($row['imagepath']);
                 if ($imagePath !== null) {
@@ -204,7 +196,7 @@ class MeilisearchIndexService
                 'id'       => $fileType . '_' . $row['id'],
                 'type'     => $fileType,
                 'title'    => $row['title'],
-                'text'     => $row['text'],
+                'text'     => $this->stripMeilisearchMeta((string) $row['text']),
                 'url'      => $row['url'],
                 'checksum' => $row['checksum'],
                 'poster'   => self::FILETYPE_ICON_MAP[$fileType]
@@ -215,9 +207,6 @@ class MeilisearchIndexService
         $index->addDocuments($documents);
     }
 
-    /**
-     * Typ (page | event | news) aus meta erkennen
-     */
     private function detectTypeFromMeta(?string $meta): string
     {
         if (!$meta) {
@@ -233,7 +222,6 @@ class MeilisearchIndexService
             if (($entry['@type'] ?? null) === 'https://schema.org/Event') {
                 return 'event';
             }
-
             if (($entry['@type'] ?? null) === 'https://schema.org/NewsArticle') {
                 return 'news';
             }
