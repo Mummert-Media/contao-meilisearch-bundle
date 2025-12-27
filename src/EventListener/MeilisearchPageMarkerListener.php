@@ -152,7 +152,8 @@ class MeilisearchPageMarkerListener
         // 4) FALLBACK (tl_settings)
         if ($finalSearchImageUuid === null) {
             $fallback = Config::get('meilisearch_fallback_image');
-            if ($fallback) {
+
+            if ($fallback && StringUtil::isBinaryUuid($fallback)) {
                 $finalSearchImageUuid = StringUtil::binToUuid($fallback);
             }
         }
