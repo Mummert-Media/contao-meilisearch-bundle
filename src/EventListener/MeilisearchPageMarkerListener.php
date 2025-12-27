@@ -199,7 +199,9 @@ class MeilisearchPageMarkerListener
 
         $hiddenMeta =
             "\n<span class=\"meilisearch-meta\" style=\"display:none !important\">" .
-            htmlspecialchars($metaText, ENT_QUOTES) .
+            "⟦MEILISEARCH_META⟧ " .
+            htmlspecialchars(implode(' | ', $metaParts), ENT_QUOTES) .
+            " ⟦/MEILISEARCH_META⟧" .
             "</span>\n";
 
         /*
