@@ -20,7 +20,11 @@ class IndexPageListener
          * PDF: Reset genau 1× pro Crawl
          * =====================
          */
-        $this->pdfIndexService->resetTableOnce();
+        try {
+            $this->pdfIndexService->resetTableOnce();
+        } catch (\Throwable $e) {
+            error_log('[ContaoMeilisearch] PDF reset failed: ' . $e->getMessage());
+        }
 
         /*
          * =====================
@@ -28,7 +32,12 @@ class IndexPageListener
          * =====================
          */
         if (str_contains($content, 'MEILISEARCH_JSON')) {
-            $parsed = $this->extractMeilisearchJson($content);
+            try {
+                $parsed = $this->extractMeilisearchJson($content);
+            } catch (\Throwable $e) {
+                error_log('[ContaoMeilisearch] Failed to extract MEILISEARCH_JSON: ' . $e->getMessage());
+                $parsed = null;
+            }
 
             if (is_array($parsed)) {
 
@@ -97,13 +106,17 @@ class IndexPageListener
                  * CHECKSUM-FIX
                  * =====================
                  */
-                $checksumSeed  = (string) ($data['checksum'] ?? '');
-                $checksumSeed .= '|' . ($set['keywords']  ?? '');
-                $checksumSeed .= '|' . ($set['priority']  ?? '');
-                $checksumSeed .= '|' . ($set['imagepath'] ?? '');
-                $checksumSeed .= '|' . ($set['startDate'] ?? '');
+                try {
+                    $checksumSeed  = (string) ($data['checksum'] ?? '');
+                    $checksumSeed .= '|' . ($set['keywords']  ?? '');
+                    $checksumSeed .= '|' . ($set['priority']  ?? '');
+                    $checksumSeed .= '|' . ($set['imagepath'] ?? '');
+                    $checksumSeed .= '|' . ($set['startDate'] ?? '');
 
-                $set['checksum'] = md5($checksumSeed);
+                    $set['checksum'] = md5($checksumSeed);
+                } catch (\Throwable $e) {
+                    error_log('[ContaoMeilisearch] Failed to generate checksum: ' . $e->getMessage());
+                }
             }
         }
 
@@ -116,9 +129,13 @@ class IndexPageListener
             (bool) Config::get('meilisearch_index_pdfs')
             && (int) ($data['protected'] ?? 0) === 0
         ) {
-            $pdfLinks = $this->findPdfLinks($content);
-            if ($pdfLinks !== []) {
-                $this->pdfIndexService->handlePdfLinks($pdfLinks);
+            try {
+                $pdfLinks = $this->findPdfLinks($content);
+                if ($pdfLinks !== []) {
+                    $this->pdfIndexService->handlePdfLinks($pdfLinks);
+                }
+            } catch (\Throwable $e) {
+                error_log('[ContaoMeilisearch] PDF indexing failed: ' . $e->getMessage());
             }
         }
 
@@ -131,9 +148,13 @@ class IndexPageListener
             (bool) Config::get('meilisearch_index_office')
             && (int) ($data['protected'] ?? 0) === 0
         ) {
-            $officeLinks = $this->findOfficeLinks($content);
-            if ($officeLinks !== []) {
-                $this->officeIndexService->handleOfficeLinks($officeLinks);
+            try {
+                $officeLinks = $this->findOfficeLinks($content);
+                if ($officeLinks !== []) {
+                    $this->officeIndexService->handleOfficeLinks($officeLinks);
+                }
+            } catch (\Throwable $e) {
+                error_log('[ContaoMeilisearch] Office indexing failed: ' . $e->getMessage());
             }
         }
     }
@@ -149,6 +170,11 @@ class IndexPageListener
 
         $json = preg_replace('/^\xEF\xBB\xBF/', '', trim($m[1]));
         $data = json_decode($json, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            error_log('[ContaoMeilisearch] Invalid MEILISEARCH_JSON: ' . json_last_error_msg());
+            return null;
+        }
 
         return is_array($data) ? $data : null;
     }
