@@ -17,7 +17,11 @@ class MeilisearchPageMarkerListener
             return $buffer;
         }
 
-        $data = [];
+        $data  = [];
+        $debug = [];
+
+        $debug[] = 'Listener gestartet';
+        $debug[] = 'Template: ' . $template;
 
         /*
          * =====================
@@ -29,6 +33,11 @@ class MeilisearchPageMarkerListener
         if (isset($GLOBALS['objPage']) && $GLOBALS['objPage'] instanceof PageModel) {
             $page = $GLOBALS['objPage'];
 
+            $debug[] = 'Page gefunden (ID: ' . $page->id . ')';
+            $debug[] = 'Page priority: ' . var_export($page->priority, true);
+            $debug[] = 'Page keywords: ' . var_export($page->keywords, true);
+            $debug[] = 'Page searchimage (raw): ' . var_export($page->searchimage, true);
+
             $data['page'] = [];
 
             if (!empty($page->priority)) {
@@ -39,10 +48,13 @@ class MeilisearchPageMarkerListener
                 $data['page']['keywords'] = trim((string) $page->keywords);
             }
 
-            // tl_page.searchimage ist bereits UUID-STRING
+            // tl_page.searchimage ist UUID-String
             if (!empty($page->searchimage)) {
                 $pageImageUuid = $page->searchimage;
+                $debug[] = 'Page searchimage UUID gesetzt: ' . $pageImageUuid;
             }
+        } else {
+            $debug[] = 'objPage nicht gesetzt oder falscher Typ';
         }
 
         /*
@@ -56,16 +68,25 @@ class MeilisearchPageMarkerListener
             $jsonBlocks
         );
 
+        $debug[] = 'Gefundene JSON-LD Blöcke: ' . count($jsonBlocks[1]);
+
         foreach ($jsonBlocks[1] as $json) {
 
             /*
              * EVENT
              */
             if (preg_match('#"@type"\s*:\s*"Event"#', $json)) {
+                $debug[] = 'JSON-LD Typ: Event';
+
                 if (preg_match('#\\\/schema\\\/events\\\/(\d+)#', $json, $m)) {
-                    $event = CalendarEventsModel::findByPk((int) $m[1]);
+                    $eventId = (int) $m[1];
+                    $debug[] = 'Event-ID aus JSON-LD: ' . $eventId;
+
+                    $event = CalendarEventsModel::findByPk($eventId);
 
                     if ($event !== null) {
+                        $debug[] = 'Event geladen';
+
                         $data['event'] = [];
 
                         if (!empty($event->priority)) {
@@ -77,9 +98,14 @@ class MeilisearchPageMarkerListener
                         }
 
                         if ($event->addImage && !empty($event->singleSRC)) {
-                            // singleSRC ist BINARY → binToUuid korrekt
-                            $data['event']['searchimage'] = StringUtil::binToUuid($event->singleSRC);
+                            $uuid = StringUtil::binToUuid($event->singleSRC);
+                            $data['event']['searchimage'] = $uuid;
+                            $debug[] = 'Event searchimage UUID: ' . $uuid;
+                        } else {
+                            $debug[] = 'Event hat kein Bild';
                         }
+                    } else {
+                        $debug[] = 'Event nicht gefunden';
                     }
                 }
             }
@@ -88,10 +114,17 @@ class MeilisearchPageMarkerListener
              * NEWS
              */
             if (preg_match('#"@type"\s*:\s*"NewsArticle"#', $json)) {
+                $debug[] = 'JSON-LD Typ: NewsArticle';
+
                 if (preg_match('#\\\/schema\\\/news\\\/(\d+)#', $json, $m)) {
-                    $news = NewsModel::findByPk((int) $m[1]);
+                    $newsId = (int) $m[1];
+                    $debug[] = 'News-ID aus JSON-LD: ' . $newsId;
+
+                    $news = NewsModel::findByPk($newsId);
 
                     if ($news !== null) {
+                        $debug[] = 'News geladen';
+
                         $data['news'] = [];
 
                         if (!empty($news->priority)) {
@@ -103,9 +136,14 @@ class MeilisearchPageMarkerListener
                         }
 
                         if ($news->addImage && !empty($news->singleSRC)) {
-                            // singleSRC ist BINARY → binToUuid korrekt
-                            $data['news']['searchimage'] = StringUtil::binToUuid($news->singleSRC);
+                            $uuid = StringUtil::binToUuid($news->singleSRC);
+                            $data['news']['searchimage'] = $uuid;
+                            $debug[] = 'News searchimage UUID: ' . $uuid;
+                        } else {
+                            $debug[] = 'News hat kein Bild';
                         }
+                    } else {
+                        $debug[] = 'News nicht gefunden';
                     }
                 }
             }
@@ -121,30 +159,43 @@ class MeilisearchPageMarkerListener
         // 1. EVENT > NEWS
         if (!empty($data['event']['searchimage'])) {
             $finalSearchImageUuid = $data['event']['searchimage'];
+            $debug[] = 'Searchimage aus Event übernommen';
         } elseif (!empty($data['news']['searchimage'])) {
             $finalSearchImageUuid = $data['news']['searchimage'];
+            $debug[] = 'Searchimage aus News übernommen';
         }
 
         // 2. CUSTOM SEARCHIMAGE (Markup)
         if (
             $finalSearchImageUuid === null
             && preg_match('#data-searchimage-uuid="([a-f0-9\-]{36})"#i', $buffer, $m)
-            && FilesModel::findByUuid($m[1]) !== null
         ) {
-            $finalSearchImageUuid = $m[1];
+            $debug[] = 'Custom searchimage UUID gefunden: ' . $m[1];
+
+            if (FilesModel::findByUuid($m[1]) !== null) {
+                $finalSearchImageUuid = $m[1];
+                $debug[] = 'Custom searchimage existiert in tl_files';
+            } else {
+                $debug[] = 'Custom searchimage existiert NICHT in tl_files';
+            }
+        } else {
+            $debug[] = 'Kein Custom searchimage im Markup';
         }
 
         // 3. PAGE SEARCHIMAGE
         if ($finalSearchImageUuid === null && $pageImageUuid) {
             $finalSearchImageUuid = $pageImageUuid;
+            $debug[] = 'Searchimage aus Page übernommen';
         }
 
         // 4. FALLBACK (tl_settings)
         if ($finalSearchImageUuid === null) {
             $fallback = Config::get('meilisearch_fallback_image');
+            $debug[] = 'Fallback raw: ' . var_export($fallback, true);
+
             if ($fallback) {
-                // fallback ist BINARY → binToUuid korrekt
                 $finalSearchImageUuid = StringUtil::binToUuid($fallback);
+                $debug[] = 'Fallback UUID: ' . $finalSearchImageUuid;
             }
         }
 
@@ -152,8 +203,11 @@ class MeilisearchPageMarkerListener
             $data['page']['searchimage'] = $finalSearchImageUuid;
         }
 
+        $debug[] = 'Finale searchimage UUID: ' . var_export($finalSearchImageUuid, true);
+        $debug[] = 'Finales Data-Array: ' . json_encode($data);
+
         if ($data === []) {
-            return $buffer;
+            $debug[] = 'Data leer – trotzdem Marker ausgeben (Debug aktiv)';
         }
 
         /*
@@ -162,8 +216,11 @@ class MeilisearchPageMarkerListener
          * =====================
          */
         $marker =
-            "\n<!--\nMEILISEARCH_JSON\n" .
-            json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) .
+            "\n<!--\n" .
+            "MEILISEARCH_JSON\n" .
+            json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n\n" .
+            "DEBUG\n" .
+            implode("\n", $debug) .
             "\n-->\n";
 
         return str_contains($buffer, '</body>')
