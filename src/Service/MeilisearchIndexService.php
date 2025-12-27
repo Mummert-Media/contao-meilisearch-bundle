@@ -37,8 +37,8 @@ class MeilisearchIndexService
         // Contao vollständig initialisieren (CLI & Cron!)
         $this->framework->initialize();
 
-        $host = (string) Config::get('meilisearch_host');
-        $apiKey = (string) Config::get('meilisearch_api_write');
+        $host      = (string) Config::get('meilisearch_host');
+        $apiKey    = (string) Config::get('meilisearch_api_write');
         $this->indexName = (string) Config::get('meilisearch_index');
 
         if ($host === '' || $this->indexName === '') {
@@ -54,19 +54,17 @@ class MeilisearchIndexService
                 'primaryKey' => 'id',
             ]);
         } catch (\Throwable) {
-            // bewusst ignorieren (Index existiert evtl. noch nicht oder Key ist bereits gesetzt)
+            // bewusst ignorieren
         }
 
-        // ✅ INDEX-SETTINGS SICHERSTELLEN
+        // ✅ Index-Settings sicherstellen
         $this->ensureIndexSettings($index);
 
-        // 1. kompletten Index löschen (Settings bleiben erhalten!)
+        // 🔄 Index leeren (Settings bleiben erhalten)
         $index->deleteAllDocuments();
 
-        // 2. tl_search indexieren
+        // 📄 Inhalte indexieren
         $this->indexTlSearch($index);
-
-        // 3. tl_search_pdf indexieren
         $this->indexTlSearchPdf($index);
     }
 
@@ -88,6 +86,36 @@ class MeilisearchIndexService
         ]);
     }
 
+    /**
+     * startDate aus schema.org Event extrahieren
+     */
+    private function extractEventStartDate(?string $meta): ?int
+    {
+        if (!$meta) {
+            return null;
+        }
+
+        $data = json_decode($meta, true);
+        if (!is_array($data)) {
+            return null;
+        }
+
+        foreach ($data as $entry) {
+            if (
+                ($entry['@type'] ?? null) === 'https://schema.org/Event'
+                && !empty($entry['startDate'])
+            ) {
+                $timestamp = strtotime($entry['startDate']);
+                return $timestamp ?: null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * tl_search indexieren
+     */
     private function indexTlSearch(Indexes $index): void
     {
         $rows = $this->connection->fetchAllAssociative('SELECT * FROM tl_search');
@@ -103,14 +131,14 @@ class MeilisearchIndexService
         foreach ($rows as $row) {
             $type = $this->detectTypeFromMeta($row['meta'] ?? null);
 
-            // 🛑 VERGANGENE EVENTS FILTERN
-            if ($type === 'event' && !$indexPastEvents) {
-                if (!empty($row['startDate'])) {
-                    $eventStart = (int) $row['startDate'];
+            // 📅 Event-Startdatum einmal ermitteln
+            $eventStart = null;
+            if ($type === 'event') {
+                $eventStart = $this->extractEventStartDate($row['meta'] ?? null);
 
-                    if ($eventStart < $today) {
-                        continue; // ⛔ Event überspringen
-                    }
+                // ⛔ Vergangene Events überspringen (wenn nicht erlaubt)
+                if (!$indexPastEvents && $eventStart !== null && $eventStart < $today) {
+                    continue;
                 }
             }
 
@@ -126,9 +154,9 @@ class MeilisearchIndexService
                 'priority'  => (int) ($row['priority'] ?? 0),
             ];
 
-            // 📅 startDate nur für Events übernehmen
-            if ($type === 'event' && !empty($row['startDate'])) {
-                $doc['startDate'] = (int) $row['startDate'];
+            // 📅 startDate nur für Events setzen
+            if ($eventStart !== null) {
+                $doc['startDate'] = $eventStart;
             }
 
             // 🖼️ Bild aus UUID erzeugen
@@ -147,12 +175,12 @@ class MeilisearchIndexService
         }
     }
 
+    /**
+     * tl_search_pdf indexieren
+     */
     private function indexTlSearchPdf(Indexes $index): void
     {
-        $rows = $this->connection->fetchAllAssociative(
-            'SELECT * FROM tl_search_pdf'
-        );
-
+        $rows = $this->connection->fetchAllAssociative('SELECT * FROM tl_search_pdf');
         if (!$rows) {
             return;
         }
@@ -164,25 +192,24 @@ class MeilisearchIndexService
                 ? $row['type']
                 : 'pdf';
 
-            $doc = [
+            $documents[] = [
                 'id'       => $fileType . '_' . $row['id'],
                 'type'     => $fileType,
                 'title'    => $row['title'],
                 'text'     => $row['text'],
                 'url'      => $row['url'],
                 'checksum' => $row['checksum'],
+                'poster'   => self::FILETYPE_ICON_MAP[$fileType]
+                    ?? self::FILETYPE_ICON_MAP['pdf'],
             ];
-
-            // 🖼️ Icon als Poster setzen (Bundle-Asset)
-            $doc['poster'] = self::FILETYPE_ICON_MAP[$fileType]
-                ?? self::FILETYPE_ICON_MAP['pdf'];
-
-            $documents[] = $doc;
         }
 
         $index->addDocuments($documents);
     }
 
+    /**
+     * Typ (page | event | news) aus meta erkennen
+     */
     private function detectTypeFromMeta(?string $meta): string
     {
         if (!$meta) {
@@ -195,15 +222,11 @@ class MeilisearchIndexService
         }
 
         foreach ($data as $entry) {
-            if (!isset($entry['@type'])) {
-                continue;
-            }
-
-            if ($entry['@type'] === 'https://schema.org/Event') {
+            if (($entry['@type'] ?? null) === 'https://schema.org/Event') {
                 return 'event';
             }
 
-            if ($entry['@type'] === 'https://schema.org/NewsArticle') {
+            if (($entry['@type'] ?? null) === 'https://schema.org/NewsArticle') {
                 return 'news';
             }
         }
