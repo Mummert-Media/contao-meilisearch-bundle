@@ -1,18 +1,17 @@
 <?php
+
 namespace MummertMedia\ContaoMeilisearchBundle\Command;
 
 use MummertMedia\ContaoMeilisearchBundle\Service\MeilisearchIndexService;
-use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
-#[AsCommand(
-    name: 'meilisearch:index',
-    description: 'Rebuild Meilisearch index from Contao search tables'
-)]
 class MeilisearchIndexCommand extends Command
 {
+    protected static $defaultName = 'meilisearch:index';
+    protected static $defaultDescription = 'Rebuild Meilisearch index from Contao search tables';
+
     public function __construct(
         private readonly MeilisearchIndexService $indexService
     ) {
