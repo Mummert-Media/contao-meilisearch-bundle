@@ -95,6 +95,21 @@ class IndexPageListener
                         $set['startDate'] = $ts;
                     }
                 }
+
+                /*
+                 * ==================================================
+                 * CHECKSUM-ERGÄNZUNG
+                 * Erzwingt Update von tl_search bei Metadaten-Änderung
+                 * ==================================================
+                 */
+                $checksumSeed = (string) ($data['checksum'] ?? '');
+
+                $checksumSeed .= '|' . ($set['keywords']  ?? '');
+                $checksumSeed .= '|' . ($set['priority']  ?? '');
+                $checksumSeed .= '|' . ($set['imagepath'] ?? '');
+                $checksumSeed .= '|' . ($set['startDate'] ?? '');
+
+                $data['checksum'] = md5($checksumSeed);
             }
         }
 
