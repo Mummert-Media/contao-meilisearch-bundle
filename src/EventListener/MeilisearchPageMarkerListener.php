@@ -153,7 +153,7 @@ class MeilisearchPageMarkerListener
         if ($finalSearchImageUuid === null) {
             $fallback = Config::get('meilisearch_fallback_image');
             if ($fallback) {
-                $finalSearchImageUuid = StringUtil::binToUuid($fallback);
+                $finalSearchImageUuid = $fallback;
             }
         }
 
