@@ -17,3 +17,5 @@ $GLOBALS['TL_HOOKS']['indexPage'][] = [
     'onIndexPage',
 ];
 
+$GLOBALS['FE_MOD']['search']['meilisearch_search']
+    = MummertMedia\ContaoMeilisearchBundle\Controller\FrontendModule\MeilisearchSearchController::class;

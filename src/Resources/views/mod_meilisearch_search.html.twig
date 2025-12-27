@@ -1,0 +1,140 @@
+{#
+Meilisearch Frontend Search
+Default Twig template
+#}
+
+<div
+        class="meilisearch-search"
+        data-limit="{{ meiliLimit }}"
+>
+    <div class="meilisearch-search-field">
+        <input
+                type="search"
+                id="meilisearch-input"
+                placeholder="Suche …"
+                autocomplete="off"
+        >
+        <button
+                type="button"
+                class="meilisearch-clear"
+                aria-label="Suche löschen"
+                hidden
+        >
+            ×
+        </button>
+    </div>
+
+    <div id="meilisearch-results" class="meilisearch-results"></div>
+</div>
+
+<script type="module">
+    import MeiliSearch from 'https://cdn.jsdelivr.net/npm/meilisearch@latest/dist/bundles/meilisearch.esm.js';
+
+    document.addEventListener('DOMContentLoaded', () => {
+
+        const wrapper = document.querySelector('.meilisearch-search');
+        if (!wrapper) {
+            return;
+        }
+
+        const input   = wrapper.querySelector('#meilisearch-input');
+        const clear   = wrapper.querySelector('.meilisearch-clear');
+        const results = wrapper.querySelector('#meilisearch-results');
+
+        const limit = parseInt(wrapper.dataset.limit, 10) || 50;
+
+        const client = new MeiliSearch({
+            host: '{{ config("meilisearch_host") }}',
+            apiKey: '{{ config("meilisearch_api_search") }}'
+        });
+
+        const index = client.index('{{ config("meilisearch_index") }}');
+
+        let abortController = null;
+
+        clear.addEventListener('click', () => {
+            input.value = '';
+            results.innerHTML = '';
+            clear.hidden = true;
+            input.focus();
+        });
+
+        input.addEventListener('input', async () => {
+
+            const query = input.value.trim();
+            clear.hidden = query.length === 0;
+
+            if (query.length < 2) {
+                results.innerHTML = '';
+                return;
+            }
+
+            abortController?.abort();
+            abortController = new AbortController();
+
+            try {
+                const response = await index.search(query, {
+                    limit: limit,
+                    attributesToRetrieve: [
+                        'title',
+                        'url',
+                        'text',
+                        'poster',
+                        'type'
+                    ],
+                    attributesToHighlight: ['text'],
+                    highlightPreTag: '<mark>',
+                    highlightPostTag: '</mark>'
+                });
+
+                renderResults(response.hits);
+
+            } catch (e) {
+                if (e.name !== 'AbortError') {
+                    console.error('Meilisearch error:', e);
+                }
+            }
+        });
+
+        function renderResults(hits) {
+
+            results.innerHTML = '';
+
+            if (!hits.length) {
+                return;
+            }
+
+            for (const hit of hits) {
+
+                const article = document.createElement('article');
+                article.className = 'meilisearch-result type-' + (hit.type || 'unknown');
+
+                const link = document.createElement('a');
+                link.href = hit.url || '#';
+                link.className = 'meilisearch-link';
+
+                if (hit.poster) {
+                    const img = document.createElement('img');
+                    img.src = hit.poster;
+                    img.alt = '';
+                    img.loading = 'lazy';
+                    link.appendChild(img);
+                }
+
+                const title = document.createElement('h3');
+                title.textContent = hit.title || '';
+                link.appendChild(title);
+
+                if (hit._formatted?.text) {
+                    const extract = document.createElement('p');
+                    extract.className = 'meilisearch-extract';
+                    extract.innerHTML = hit._formatted.text;
+                    link.appendChild(extract);
+                }
+
+                article.appendChild(link);
+                results.appendChild(article);
+            }
+        }
+    });
+</script>
