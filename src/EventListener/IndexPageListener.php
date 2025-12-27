@@ -22,6 +22,14 @@ class IndexPageListener
          */
         $this->pdfIndexService->resetTableOnce();
 
+        // ⛔ MEILISEARCH_META aus indexiertem Text entfernen
+        $content = preg_replace(
+            '#<span class="meilisearch-meta"[^>]*>.*?</span>#s',
+            '',
+            $content
+        );
+
+
         /*
          * =====================
          * SEITEN-METADATEN
