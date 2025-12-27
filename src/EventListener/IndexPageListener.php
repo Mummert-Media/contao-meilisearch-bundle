@@ -109,27 +109,6 @@ class IndexPageListener
 
         /*
          * =====================
-         * 🔥 ENTSCHEIDENDER FIX
-         * Eigenen Suchtext setzen
-         * =====================
-         */
-        $cleanContent = preg_replace(
-            [
-                // MEILISEARCH_META entfernen
-                '#<span class="meilisearch-meta"[^>]*>.*?</span>#s',
-
-                // MEILISEARCH_JSON Kommentar entfernen
-                '#<!--\s*MEILISEARCH_JSON.*?-->#s',
-            ],
-            '',
-            $content
-        );
-
-        // Contao überschreibt sonst später den Text → wir kommen ihm zuvor
-        $set['text'] = trim(strip_tags($cleanContent));
-
-        /*
-         * =====================
          * PDF-INDEXIERUNG
          * =====================
          */
