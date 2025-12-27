@@ -34,3 +34,11 @@ $GLOBALS['TL_DCA']['tl_search']['fields']['startDate'] = [
     'eval'      => ['tl_class' => 'w50', 'rgxp' => 'digit'],
     'sql'       => "bigint(20) NOT NULL default '0'",
 ];
+
+$GLOBALS['TL_DCA']['tl_search']['fields']['endDate'] = [
+    'label'     => ['Enddatum', 'Enddatum für die Suchergebnisse (Unix-Timestamp)'],
+    'exclude'   => true,
+    'inputType' => 'text',
+    'eval'      => ['tl_class' => 'w50', 'rgxp' => 'digit'],
+    'sql'       => "bigint(20) NOT NULL default '0'",
+];

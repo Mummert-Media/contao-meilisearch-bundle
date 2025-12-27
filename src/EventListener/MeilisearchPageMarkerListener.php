@@ -39,16 +39,12 @@ class MeilisearchPageMarkerListener
                 $data['page']['keywords'] = trim((string) $page->keywords);
             }
 
-            // Achtung: je nach Felddefinition kann searchimage BINARY(16) oder UUID-String sein.
-            // Wir versuchen beides robust zu behandeln.
             if (!empty($page->searchimage)) {
                 $raw = (string) $page->searchimage;
 
-                // UUID-String?
                 if (preg_match('/^[a-f0-9-]{36}$/i', $raw)) {
                     $pageImageUuid = $raw;
                 } else {
-                    // vermutlich BINARY(16)
                     try {
                         $pageImageUuid = StringUtil::binToUuid($raw);
                     } catch (\Throwable) {
@@ -70,11 +66,12 @@ class MeilisearchPageMarkerListener
         );
 
         foreach ($jsonBlocks[1] as $json) {
+
             /*
              * EVENT
              */
             if (preg_match('#"@type"\s*:\s*"Event"#', $json)) {
-                if (preg_match('#\\\/schema\\\/events\\\/(\d+)#', $json, $m)) {
+                if (preg_match('#\\/schema\\/events\\/(\\d+)#', $json, $m)) {
                     $event = CalendarEventsModel::findByPk((int) $m[1]);
 
                     if ($event !== null) {
@@ -91,6 +88,15 @@ class MeilisearchPageMarkerListener
                         if ($event->addImage && !empty($event->singleSRC)) {
                             $data['event']['searchimage'] = StringUtil::binToUuid($event->singleSRC);
                         }
+
+                        // ✅ START / END DATE (Unix Timestamp)
+                        if (!empty($event->startDate)) {
+                            $data['event']['startDate'] = (int) $event->startDate;
+                        }
+
+                        if (!empty($event->endDate)) {
+                            $data['event']['endDate'] = (int) $event->endDate;
+                        }
                     }
                 }
             }
@@ -99,7 +105,7 @@ class MeilisearchPageMarkerListener
              * NEWS
              */
             if (preg_match('#"@type"\s*:\s*"NewsArticle"#', $json)) {
-                if (preg_match('#\\\/schema\\\/news\\\/(\d+)#', $json, $m)) {
+                if (preg_match('#\\/schema\\/news\\/(\\d+)#', $json, $m)) {
                     $news = NewsModel::findByPk((int) $m[1]);
 
                     if ($news !== null) {
@@ -168,24 +174,36 @@ class MeilisearchPageMarkerListener
 
         /*
          * =====================
-         * WICHTIG: META-TEXT, damit sich die Contao-Checksum ändert
+         * META-SPAN (Checksum-relevant!)
          * =====================
-         * Kommentar allein zählt oft nicht in die Checksum rein.
-         * Darum zusätzlich ein unsichtbares Text-Fragment in den Body schreiben.
          */
         $metaParts = [];
 
+        // PAGE
         if (isset($data['page']['priority'])) {
-            $metaParts[] = 'priority=' . (int) $data['page']['priority'];
+            $metaParts[] = 'page_priority=' . (int) $data['page']['priority'];
         }
         if (!empty($data['page']['keywords'])) {
-            $metaParts[] = 'keywords=' . (string) $data['page']['keywords'];
+            $metaParts[] = 'page_keywords=' . (string) $data['page']['keywords'];
         }
         if (!empty($data['page']['searchimage'])) {
-            $metaParts[] = 'searchimage=' . (string) $data['page']['searchimage'];
+            $metaParts[] = 'page_searchimage=' . (string) $data['page']['searchimage'];
         }
 
-        // Wenn gar nichts da ist, trotzdem stabiler Marker (damit du später erweitern kannst)
+        // EVENT
+        if (!empty($data['event']['startDate'])) {
+            $metaParts[] = 'event_startDate=' . (int) $data['event']['startDate'];
+        }
+        if (!empty($data['event']['endDate'])) {
+            $metaParts[] = 'event_endDate=' . (int) $data['event']['endDate'];
+        }
+        if (!empty($data['event']['priority'])) {
+            $metaParts[] = 'event_priority=' . (int) $data['event']['priority'];
+        }
+        if (!empty($data['event']['keywords'])) {
+            $metaParts[] = 'event_keywords=' . (string) $data['event']['keywords'];
+        }
+
         $metaText = 'MEILISEARCH_META ' . ($metaParts ? implode(' | ', $metaParts) : 'present');
 
         $hiddenMeta =
@@ -195,7 +213,7 @@ class MeilisearchPageMarkerListener
 
         /*
          * =====================
-         * MARKER AUSGEBEN
+         * JSON-MARKER
          * =====================
          */
         $marker =
