@@ -25,5 +25,5 @@ services:
         name: contao.frontend_module,
         type: meilisearch_search,
         category: search,
-        template: frontend_module/meilisearch_search
+        template: '@ContaoMeilisearch/frontend_module/meilisearch_search.html.twig'
       }
