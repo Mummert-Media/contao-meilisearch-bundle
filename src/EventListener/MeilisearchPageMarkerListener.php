@@ -21,7 +21,7 @@ class MeilisearchPageMarkerListener
 
         /*
          * =====================
-         * PAGE (Basisdaten)
+         * PAGE
          * =====================
          */
         $pageImageUuid = null;
@@ -40,87 +40,90 @@ class MeilisearchPageMarkerListener
             }
 
             if (!empty($page->searchimage)) {
-                $raw = (string) $page->searchimage;
-
-                if (preg_match('/^[a-f0-9-]{36}$/i', $raw)) {
-                    $pageImageUuid = $raw;
-                } else {
-                    try {
-                        $pageImageUuid = StringUtil::binToUuid($raw);
-                    } catch (\Throwable) {
-                        // ignorieren
-                    }
-                }
+                try {
+                    $pageImageUuid = StringUtil::binToUuid((string) $page->searchimage);
+                } catch (\Throwable) {}
             }
         }
 
         /*
          * =====================
-         * SCHEMA.ORG JSON-LD
+         * JSON-LD (SAUBER!)
          * =====================
          */
         preg_match_all(
-            '#<script type="application/ld\+json">\s*(\{.*?\})\s*</script>#s',
+            '#<script type="application/ld\+json">\s*(.*?)\s*</script>#s',
             $buffer,
-            $jsonBlocks
+            $matches
         );
 
-        foreach ($jsonBlocks[1] as $json) {
+        foreach ($matches[1] as $jsonRaw) {
+            $json = json_decode($jsonRaw, true);
+            if (!is_array($json)) {
+                continue;
+            }
 
-            /*
-             * EVENT
-             */
-            if (preg_match('#"@type"\s*:\s*"Event"#', $json)) {
-                if (preg_match('#\\/schema\\/events\\/(\\d+)#', $json, $m)) {
-                    $event = CalendarEventsModel::findByPk((int) $m[1]);
+            $graph = $json['@graph'] ?? [];
+            if (!is_array($graph)) {
+                continue;
+            }
 
-                    if ($event !== null) {
-                        $data['event'] = [];
+            foreach ($graph as $entry) {
 
-                        if (!empty($event->priority)) {
-                            $data['event']['priority'] = (int) $event->priority;
-                        }
+                /*
+                 * EVENT
+                 */
+                if (($entry['@type'] ?? null) === 'Event' && !empty($entry['@id'])) {
+                    if (preg_match('#/schema/events/(\d+)#', $entry['@id'], $m)) {
+                        $event = CalendarEventsModel::findByPk((int) $m[1]);
 
-                        if (!empty($event->keywords)) {
-                            $data['event']['keywords'] = trim((string) $event->keywords);
-                        }
+                        if ($event !== null) {
+                            $data['event'] = [];
 
-                        if ($event->addImage && !empty($event->singleSRC)) {
-                            $data['event']['searchimage'] = StringUtil::binToUuid($event->singleSRC);
-                        }
+                            if (!empty($event->priority)) {
+                                $data['event']['priority'] = (int) $event->priority;
+                            }
 
-                        // ✅ START / END DATE (Unix Timestamp)
-                        if (!empty($event->startDate)) {
-                            $data['event']['startDate'] = (int) $event->startDate;
-                        }
+                            if (!empty($event->keywords)) {
+                                $data['event']['keywords'] = trim((string) $event->keywords);
+                            }
 
-                        if (!empty($event->endDate)) {
-                            $data['event']['endDate'] = (int) $event->endDate;
+                            if ($event->addImage && !empty($event->singleSRC)) {
+                                $data['event']['searchimage'] = StringUtil::binToUuid($event->singleSRC);
+                            }
+
+                            if (!empty($event->startDate)) {
+                                $data['event']['startDate'] = (int) $event->startDate;
+                            }
+
+                            if (!empty($event->endDate)) {
+                                $data['event']['endDate'] = (int) $event->endDate;
+                            }
                         }
                     }
                 }
-            }
 
-            /*
-             * NEWS
-             */
-            if (preg_match('#"@type"\s*:\s*"NewsArticle"#', $json)) {
-                if (preg_match('#\\/schema\\/news\\/(\\d+)#', $json, $m)) {
-                    $news = NewsModel::findByPk((int) $m[1]);
+                /*
+                 * NEWS
+                 */
+                if (($entry['@type'] ?? null) === 'NewsArticle' && !empty($entry['@id'])) {
+                    if (preg_match('#/schema/news/(\d+)#', $entry['@id'], $m)) {
+                        $news = NewsModel::findByPk((int) $m[1]);
 
-                    if ($news !== null) {
-                        $data['news'] = [];
+                        if ($news !== null) {
+                            $data['news'] = [];
 
-                        if (!empty($news->priority)) {
-                            $data['news']['priority'] = (int) $news->priority;
-                        }
+                            if (!empty($news->priority)) {
+                                $data['news']['priority'] = (int) $news->priority;
+                            }
 
-                        if (!empty($news->keywords)) {
-                            $data['news']['keywords'] = trim((string) $news->keywords);
-                        }
+                            if (!empty($news->keywords)) {
+                                $data['news']['keywords'] = trim((string) $news->keywords);
+                            }
 
-                        if ($news->addImage && !empty($news->singleSRC)) {
-                            $data['news']['searchimage'] = StringUtil::binToUuid($news->singleSRC);
+                            if ($news->addImage && !empty($news->singleSRC)) {
+                                $data['news']['searchimage'] = StringUtil::binToUuid($news->singleSRC);
+                            }
                         }
                     }
                 }
@@ -129,42 +132,16 @@ class MeilisearchPageMarkerListener
 
         /*
          * =====================
-         * FINALE SEARCHIMAGE-ENTSCHEIDUNG
+         * SEARCHIMAGE
          * =====================
          */
-        $finalSearchImageUuid = null;
+        $finalSearchImageUuid =
+            $data['event']['searchimage']
+            ?? $data['news']['searchimage']
+            ?? $pageImageUuid
+            ?? Config::get('meilisearch_fallback_image');
 
-        // 1) EVENT > NEWS
-        if (!empty($data['event']['searchimage'])) {
-            $finalSearchImageUuid = $data['event']['searchimage'];
-        } elseif (!empty($data['news']['searchimage'])) {
-            $finalSearchImageUuid = $data['news']['searchimage'];
-        }
-
-        // 2) CUSTOM SEARCHIMAGE (Markup)
-        if (
-            $finalSearchImageUuid === null
-            && preg_match('#data-searchimage-uuid="([a-f0-9\-]{36})"#i', $buffer, $m)
-            && FilesModel::findByUuid($m[1]) !== null
-        ) {
-            $finalSearchImageUuid = $m[1];
-        }
-
-        // 3) PAGE SEARCHIMAGE
-        if ($finalSearchImageUuid === null && $pageImageUuid) {
-            $finalSearchImageUuid = $pageImageUuid;
-        }
-
-        // 4) FALLBACK (tl_settings)
-        if ($finalSearchImageUuid === null) {
-            $fallback = Config::get('meilisearch_fallback_image');
-            if ($fallback) {
-                $finalSearchImageUuid = $fallback;
-            }
-        }
-
-        if ($finalSearchImageUuid !== null) {
-            $data['page'] ??= [];
+        if ($finalSearchImageUuid) {
             $data['page']['searchimage'] = $finalSearchImageUuid;
         }
 
@@ -174,57 +151,28 @@ class MeilisearchPageMarkerListener
 
         /*
          * =====================
-         * META-SPAN (Checksum-relevant!)
+         * META-SPAN (Checksum!)
          * =====================
          */
-        $metaParts = [];
+        $meta = [];
 
-        // PAGE
-        if (isset($data['page']['priority'])) {
-            $metaParts[] = 'page_priority=' . (int) $data['page']['priority'];
-        }
-        if (!empty($data['page']['keywords'])) {
-            $metaParts[] = 'page_keywords=' . (string) $data['page']['keywords'];
-        }
-        if (!empty($data['page']['searchimage'])) {
-            $metaParts[] = 'page_searchimage=' . (string) $data['page']['searchimage'];
-        }
-
-        // EVENT
         if (!empty($data['event']['startDate'])) {
-            $metaParts[] = 'event_startDate=' . (int) $data['event']['startDate'];
+            $meta[] = 'event_startDate=' . $data['event']['startDate'];
         }
         if (!empty($data['event']['endDate'])) {
-            $metaParts[] = 'event_endDate=' . (int) $data['event']['endDate'];
-        }
-        if (!empty($data['event']['priority'])) {
-            $metaParts[] = 'event_priority=' . (int) $data['event']['priority'];
-        }
-        if (!empty($data['event']['keywords'])) {
-            $metaParts[] = 'event_keywords=' . (string) $data['event']['keywords'];
+            $meta[] = 'event_endDate=' . $data['event']['endDate'];
         }
 
-        $metaText = 'MEILISEARCH_META ' . ($metaParts ? implode(' | ', $metaParts) : 'present');
-
-        $hiddenMeta =
+        $hidden =
             "\n<span class=\"meilisearch-meta\" style=\"display:none !important\">" .
-            htmlspecialchars($metaText, ENT_QUOTES) .
+            'MEILISEARCH_META ' . implode(' | ', $meta) .
             "</span>\n";
 
-        /*
-         * =====================
-         * JSON-MARKER
-         * =====================
-         */
         $marker =
             "\n<!--\nMEILISEARCH_JSON\n" .
             json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) .
             "\n-->\n";
 
-        $injection = $hiddenMeta . $marker;
-
-        return str_contains($buffer, '</body>')
-            ? str_replace('</body>', $injection . '</body>', $buffer)
-            : $buffer . $injection;
+        return str_replace('</body>', $hidden . $marker . '</body>', $buffer);
     }
 }
