@@ -24,20 +24,6 @@ class IndexPageListener
 
         /*
          * =====================
-         * MEILISEARCH_META aus Suchtext entfernen
-         * =====================
-         */
-        if (isset($set['text']) && is_string($set['text'])) {
-            $set['text'] = preg_replace(
-                '#<span class="meilisearch-meta"[^>]*>.*?</span>#s',
-                '',
-                $set['text']
-            );
-        }
-
-
-        /*
-         * =====================
          * SEITEN-METADATEN
          * =====================
          */
@@ -74,7 +60,6 @@ class IndexPageListener
                     }
 
                     foreach (preg_split('/\s+/', trim($src)) as $word) {
-                        $word = trim($word);
                         if ($word !== '') {
                             $keywords[] = $word;
                         }
@@ -96,7 +81,6 @@ class IndexPageListener
                     $set['imagepath'] = trim($parsed['page']['searchimage']);
                 }
 
-
                 /*
                  * STARTDATE (Unix Timestamp)
                  */
@@ -109,10 +93,9 @@ class IndexPageListener
                 }
 
                 /*
-                 * ==================================================
-                 * CHECKSUM-FIX (entscheidend!)
-                 * Erzwingt Update von tl_search bei Metadaten-Änderung
-                 * ==================================================
+                 * =====================
+                 * CHECKSUM-FIX
+                 * =====================
                  */
                 $checksumSeed  = (string) ($data['checksum'] ?? '');
                 $checksumSeed .= '|' . ($set['keywords']  ?? '');
@@ -126,6 +109,27 @@ class IndexPageListener
 
         /*
          * =====================
+         * 🔥 ENTSCHEIDENDER FIX
+         * Eigenen Suchtext setzen
+         * =====================
+         */
+        $cleanContent = preg_replace(
+            [
+                // MEILISEARCH_META entfernen
+                '#<span class="meilisearch-meta"[^>]*>.*?</span>#s',
+
+                // MEILISEARCH_JSON Kommentar entfernen
+                '#<!--\s*MEILISEARCH_JSON.*?-->#s',
+            ],
+            '',
+            $content
+        );
+
+        // Contao überschreibt sonst später den Text → wir kommen ihm zuvor
+        $set['text'] = trim(strip_tags($cleanContent));
+
+        /*
+         * =====================
          * PDF-INDEXIERUNG
          * =====================
          */
@@ -133,7 +137,7 @@ class IndexPageListener
             (bool) Config::get('meilisearch_index_pdfs')
             && (int) ($data['protected'] ?? 0) === 0
         ) {
-            $pdfLinks = $this->findPdfLinks($content);
+            $pdfLinks = $this->findPdfLinks($cleanContent);
             if ($pdfLinks !== []) {
                 $this->pdfIndexService->handlePdfLinks($pdfLinks);
             }
@@ -148,7 +152,7 @@ class IndexPageListener
             (bool) Config::get('meilisearch_index_office')
             && (int) ($data['protected'] ?? 0) === 0
         ) {
-            $officeLinks = $this->findOfficeLinks($content);
+            $officeLinks = $this->findOfficeLinks($cleanContent);
             if ($officeLinks !== []) {
                 $this->officeIndexService->handleOfficeLinks($officeLinks);
             }
@@ -172,8 +176,6 @@ class IndexPageListener
 
     /**
      * Findet PDF-Links im Content
-     *
-     * @return array<int,array{url:string,linkText:?string}>
      */
     private function findPdfLinks(string $content): array
     {
@@ -198,9 +200,7 @@ class IndexPageListener
     }
 
     /**
-     * Findet Office-Links (docx, xlsx, pptx) im Content
-     *
-     * @return array<int,array{url:string,linkText:?string}>
+     * Findet Office-Links (docx, xlsx, pptx)
      */
     private function findOfficeLinks(string $content): array
     {
