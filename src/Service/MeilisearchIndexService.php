@@ -59,12 +59,6 @@ class MeilisearchIndexService
         }
 
         try {
-            $index->updateSettings(['primaryKey' => 'id']);
-        } catch (\Throwable $e) {
-            error_log('[ContaoMeilisearch] Failed to set primaryKey: ' . $e->getMessage());
-        }
-
-        try {
             $this->ensureIndexSettings($index);
         } catch (\Throwable $e) {
             error_log('[ContaoMeilisearch] Failed to update index settings: ' . $e->getMessage());
