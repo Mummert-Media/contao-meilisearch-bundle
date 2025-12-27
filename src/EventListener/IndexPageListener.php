@@ -24,7 +24,7 @@ class IndexPageListener
 
         /*
          * =====================
-         * SEITEN-METADATEN (IMMER)
+         * SEITEN-METADATEN
          * =====================
          */
         if (str_contains($content, 'MEILISEARCH_JSON')) {
@@ -83,7 +83,7 @@ class IndexPageListener
                 }
 
                 /*
-                 * STARTDATE (für Sortierung)
+                 * STARTDATE
                  */
                 $date =
                     $parsed['event']['date'] ?? null ??
@@ -98,24 +98,23 @@ class IndexPageListener
 
                 /*
                  * ==================================================
-                 * CHECKSUM-ERGÄNZUNG
+                 * CHECKSUM-FIX (entscheidend!)
                  * Erzwingt Update von tl_search bei Metadaten-Änderung
                  * ==================================================
                  */
-                $checksumSeed = (string) ($data['checksum'] ?? '');
-
+                $checksumSeed  = (string) ($data['checksum'] ?? '');
                 $checksumSeed .= '|' . ($set['keywords']  ?? '');
                 $checksumSeed .= '|' . ($set['priority']  ?? '');
                 $checksumSeed .= '|' . ($set['imagepath'] ?? '');
                 $checksumSeed .= '|' . ($set['startDate'] ?? '');
 
-                $data['checksum'] = md5($checksumSeed);
+                $set['checksum'] = md5($checksumSeed);
             }
         }
 
         /*
          * =====================
-         * PDF-INDEXIERUNG (OPTIONAL)
+         * PDF-INDEXIERUNG
          * =====================
          */
         if (
@@ -130,7 +129,7 @@ class IndexPageListener
 
         /*
          * =====================
-         * OFFICE-INDEXIERUNG (OPTIONAL)
+         * OFFICE-INDEXIERUNG
          * =====================
          */
         if (
