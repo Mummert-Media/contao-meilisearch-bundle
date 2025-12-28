@@ -132,21 +132,19 @@ class PdfIndexService
     {
         fwrite(STDERR, "[Meili PDF DEBUG] normalizePdfUrl(): {$url}\n");
 
-        if (str_starts_with($url, '/files/') && preg_match('~\.pdf(\?.*)?$~i', $url)) {
-            $r = preg_replace('~\?.*$~', '', $url);
-            fwrite(STDERR, "[Meili PDF DEBUG] → direct /files path {$r}\n");
-            return $r;
-        }
-
         $decoded = html_entity_decode($url);
         $parts = parse_url($decoded);
 
-        if (
-            !empty($parts['path'])
-            && str_starts_with($parts['path'], '/files/')
-            && str_ends_with(strtolower($parts['path']), '.pdf')
-        ) {
-            fwrite(STDERR, "[Meili PDF DEBUG] → absolute URL path {$parts['path']}\n");
+        // 1) files/...pdf (ohne führenden Slash)
+        if (!empty($parts['path']) && str_starts_with($parts['path'], 'files/') && str_ends_with(strtolower($parts['path']), '.pdf')) {
+            $r = '/' . $parts['path'];
+            fwrite(STDERR, "[Meili PDF DEBUG] → relative files path {$r}\n");
+            return $r;
+        }
+
+        // 2) /files/...pdf
+        if (!empty($parts['path']) && str_starts_with($parts['path'], '/files/') && str_ends_with(strtolower($parts['path']), '.pdf')) {
+            fwrite(STDERR, "[Meili PDF DEBUG] → absolute files path {$parts['path']}\n");
             return $parts['path'];
         }
 
@@ -157,6 +155,19 @@ class PdfIndexService
 
         parse_str($parts['query'], $query);
 
+        // 3) Contao 4: ?file=files/...
+        if (!empty($query['file'])) {
+            $file = urldecode((string) $query['file']);
+            $file = ltrim($file, '/');
+
+            if (str_starts_with($file, 'files/') && str_ends_with(strtolower($file), '.pdf')) {
+                $r = '/' . $file;
+                fwrite(STDERR, "[Meili PDF DEBUG] → file= normalized {$r}\n");
+                return $r;
+            }
+        }
+
+        // 4) Contao 5: ?p=...
         if (!empty($query['p'])) {
             $p = urldecode((string) $query['p']);
             $r = '/files/' . ltrim($p, '/');
