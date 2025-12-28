@@ -88,7 +88,15 @@ class OfficeIndexService
         $decoded = html_entity_decode($url);
         $parts = parse_url($decoded);
 
-        // direkter /files/-Pfad
+        // 1) files/... (ohne führenden Slash)
+        if (!empty($parts['path']) && str_starts_with($parts['path'], 'files/')) {
+            $ext = strtolower(pathinfo($parts['path'], PATHINFO_EXTENSION));
+            if (in_array($ext, ['docx', 'xlsx', 'pptx'], true)) {
+                return ['/' . $parts['path'], $ext];
+            }
+        }
+
+        // 2) /files/...
         if (!empty($parts['path']) && str_starts_with($parts['path'], '/files/')) {
             $ext = strtolower(pathinfo($parts['path'], PATHINFO_EXTENSION));
             if (in_array($ext, ['docx', 'xlsx', 'pptx'], true)) {
@@ -96,17 +104,33 @@ class OfficeIndexService
             }
         }
 
-        // Contao-Download-Link mit ?p=
-        if (!empty($parts['query'])) {
-            parse_str($parts['query'], $query);
+        if (empty($parts['query'])) {
+            return null;
+        }
 
-            if (!empty($query['p'])) {
-                $p = urldecode((string) $query['p']);
-                $ext = strtolower(pathinfo($p, PATHINFO_EXTENSION));
+        parse_str($parts['query'], $query);
 
-                if (in_array($ext, ['docx', 'xlsx', 'pptx'], true)) {
-                    return ['/files/' . ltrim($p, '/'), $ext];
-                }
+        // 3) Contao 4: ?file=files/...
+        if (!empty($query['file'])) {
+            $file = urldecode((string) $query['file']);
+            $file = ltrim($file, '/');
+            $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+
+            if (
+                str_starts_with($file, 'files/')
+                && in_array($ext, ['docx', 'xlsx', 'pptx'], true)
+            ) {
+                return ['/' . $file, $ext];
+            }
+        }
+
+        // 4) Contao 5: ?p=...
+        if (!empty($query['p'])) {
+            $p = urldecode((string) $query['p']);
+            $ext = strtolower(pathinfo($p, PATHINFO_EXTENSION));
+
+            if (in_array($ext, ['docx', 'xlsx', 'pptx'], true)) {
+                return ['/files/' . ltrim($p, '/'), $ext];
             }
         }
 

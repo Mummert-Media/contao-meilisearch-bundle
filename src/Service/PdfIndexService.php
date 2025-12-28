@@ -16,17 +16,26 @@ class PdfIndexService
     public function __construct(ParameterBagInterface $params)
     {
         $this->projectDir = rtrim((string) $params->get('kernel.project_dir'), '/');
-        fwrite(STDERR, "[Meili PDF DEBUG] projectDir={$this->projectDir}\n");
+        $this->debug("projectDir={$this->projectDir}");
+    }
+
+    private function debug(string $message): void
+    {
+        $stream = \defined('STDERR')
+            ? STDERR
+            : fopen('php://stderr', 'wb');
+
+        fwrite($stream, "[Meili PDF DEBUG] {$message}\n");
     }
 
     public function resetTableOnce(): void
     {
         if ($this->didReset) {
-            fwrite(STDERR, "[Meili PDF DEBUG] resetTableOnce(): already reset\n");
+            $this->debug('resetTableOnce(): already reset');
             return;
         }
 
-        fwrite(STDERR, "[Meili PDF DEBUG] resetTableOnce(): TRUNCATE tl_search_pdf\n");
+        $this->debug('resetTableOnce(): TRUNCATE tl_search_pdf');
 
         $this->didReset = true;
         $this->seenThisCrawl = [];
@@ -34,89 +43,70 @@ class PdfIndexService
         try {
             Database::getInstance()->execute('TRUNCATE tl_search_pdf');
         } catch (\Throwable $e) {
-            fwrite(STDERR, "[Meili PDF DEBUG] TRUNCATE failed: {$e->getMessage()}\n");
+            $this->debug('TRUNCATE failed: ' . $e->getMessage());
         }
     }
 
     public function handlePdfLinks(array $pdfLinks): void
     {
-        fwrite(
-            STDERR,
-            "[Meili PDF DEBUG] handlePdfLinks(): count=" . count($pdfLinks) . "\n"
-        );
+        $this->debug('handlePdfLinks(): count=' . count($pdfLinks));
 
         foreach ($pdfLinks as $row) {
             $url = (string) ($row['url'] ?? '');
             $linkText = $row['linkText'] ?? null;
 
-            fwrite(STDERR, "\n[Meili PDF DEBUG] URL={$url}\n");
+            $this->debug("URL={$url}");
 
             if ($url === '') {
-                fwrite(STDERR, "[Meili PDF DEBUG] → empty URL, skip\n");
+                $this->debug('→ empty URL, skip');
                 continue;
             }
 
             $seenKey = md5($url);
             if (isset($this->seenThisCrawl[$seenKey])) {
-                fwrite(STDERR, "[Meili PDF DEBUG] → already processed, skip\n");
+                $this->debug('→ already processed, skip');
                 continue;
             }
             $this->seenThisCrawl[$seenKey] = true;
 
             $normalizedPath = $this->normalizePdfUrl($url);
-            fwrite(
-                STDERR,
-                "[Meili PDF DEBUG] normalizePdfUrl() → "
-                . ($normalizedPath ?? 'NULL')
-                . "\n"
-            );
+            $this->debug('normalizePdfUrl() → ' . ($normalizedPath ?? 'NULL'));
 
             if ($normalizedPath === null) {
-                fwrite(STDERR, "[Meili PDF DEBUG] → normalization failed, skip\n");
+                $this->debug('→ normalization failed, skip');
                 continue;
             }
 
             $absolutePath = $this->getAbsolutePath($normalizedPath);
-            fwrite(STDERR, "[Meili PDF DEBUG] absolutePath={$absolutePath}\n");
+            $this->debug("absolutePath={$absolutePath}");
 
             if (!is_file($absolutePath)) {
-                fwrite(STDERR, "[Meili PDF DEBUG] → file does NOT exist\n");
+                $this->debug('→ file does NOT exist');
                 continue;
             }
 
-            fwrite(STDERR, "[Meili PDF DEBUG] → file exists\n");
+            $this->debug('→ file exists');
 
             $mtime = (int) (filemtime($absolutePath) ?: 0);
             $checksum = md5($normalizedPath . '|' . $mtime);
 
-            fwrite(
-                STDERR,
-                "[Meili PDF DEBUG] mtime={$mtime} checksum={$checksum}\n"
-            );
+            $this->debug("mtime={$mtime} checksum={$checksum}");
 
             $pdfMetaTitle = $this->readPdfMetaTitle($absolutePath);
-            fwrite(
-                STDERR,
-                "[Meili PDF DEBUG] metaTitle="
-                . ($pdfMetaTitle ?: 'NULL')
-                . "\n"
-            );
+            $this->debug('metaTitle=' . ($pdfMetaTitle ?: 'NULL'));
 
             $title = $linkText ?: ($pdfMetaTitle ?: basename($absolutePath));
-            fwrite(STDERR, "[Meili PDF DEBUG] final title={$title}\n");
+            $this->debug("final title={$title}");
 
             $text = $this->parsePdf($absolutePath);
-            fwrite(
-                STDERR,
-                "[Meili PDF DEBUG] parsed text length=" . strlen($text) . "\n"
-            );
+            $this->debug('parsed text length=' . strlen($text));
 
             if ($text === '') {
-                fwrite(STDERR, "[Meili PDF DEBUG] → empty text, skip\n");
+                $this->debug('→ empty text, skip');
                 continue;
             }
 
-            fwrite(STDERR, "[Meili PDF DEBUG] → writing to DB\n");
+            $this->debug('→ writing to DB');
 
             $this->upsertPdf(
                 $normalizedPath,
@@ -130,52 +120,48 @@ class PdfIndexService
 
     private function normalizePdfUrl(string $url): ?string
     {
-        fwrite(STDERR, "[Meili PDF DEBUG] normalizePdfUrl(): {$url}\n");
+        $this->debug("normalizePdfUrl(): {$url}");
 
         $decoded = html_entity_decode($url);
         $parts = parse_url($decoded);
 
-        // 1) files/...pdf (ohne führenden Slash)
         if (!empty($parts['path']) && str_starts_with($parts['path'], 'files/') && str_ends_with(strtolower($parts['path']), '.pdf')) {
             $r = '/' . $parts['path'];
-            fwrite(STDERR, "[Meili PDF DEBUG] → relative files path {$r}\n");
+            $this->debug("→ relative files path {$r}");
             return $r;
         }
 
-        // 2) /files/...pdf
         if (!empty($parts['path']) && str_starts_with($parts['path'], '/files/') && str_ends_with(strtolower($parts['path']), '.pdf')) {
-            fwrite(STDERR, "[Meili PDF DEBUG] → absolute files path {$parts['path']}\n");
+            $this->debug("→ absolute files path {$parts['path']}");
             return $parts['path'];
         }
 
         if (empty($parts['query'])) {
-            fwrite(STDERR, "[Meili PDF DEBUG] → no query\n");
+            $this->debug('→ no query');
             return null;
         }
 
         parse_str($parts['query'], $query);
 
-        // 3) Contao 4: ?file=files/...
         if (!empty($query['file'])) {
             $file = urldecode((string) $query['file']);
             $file = ltrim($file, '/');
 
             if (str_starts_with($file, 'files/') && str_ends_with(strtolower($file), '.pdf')) {
                 $r = '/' . $file;
-                fwrite(STDERR, "[Meili PDF DEBUG] → file= normalized {$r}\n");
+                $this->debug("→ file= normalized {$r}");
                 return $r;
             }
         }
 
-        // 4) Contao 5: ?p=...
         if (!empty($query['p'])) {
             $p = urldecode((string) $query['p']);
             $r = '/files/' . ltrim($p, '/');
-            fwrite(STDERR, "[Meili PDF DEBUG] → p= normalized {$r}\n");
+            $this->debug("→ p= normalized {$r}");
             return $r;
         }
 
-        fwrite(STDERR, "[Meili PDF DEBUG] → no usable parameter\n");
+        $this->debug('→ no usable parameter');
         return null;
     }
 
@@ -214,12 +200,9 @@ class PdfIndexService
                     $mtime
                 );
 
-            fwrite(STDERR, "[Meili PDF DEBUG] → DB write OK\n");
+            $this->debug('→ DB write OK');
         } catch (\Throwable $e) {
-            fwrite(
-                STDERR,
-                "[Meili PDF DEBUG] DB write failed: {$e->getMessage()}\n"
-            );
+            $this->debug('DB write failed: ' . $e->getMessage());
         }
     }
 
@@ -231,10 +214,7 @@ class PdfIndexService
             $text = $this->cleanPdfContent($pdf->getText());
             return mb_substr($text, 0, 20000);
         } catch (\Throwable $e) {
-            fwrite(
-                STDERR,
-                "[Meili PDF DEBUG] parsePdf failed: {$e->getMessage()}\n"
-            );
+            $this->debug('parsePdf failed: ' . $e->getMessage());
             return '';
         }
     }
@@ -252,10 +232,7 @@ class PdfIndexService
                 }
             }
         } catch (\Throwable $e) {
-            fwrite(
-                STDERR,
-                "[Meili PDF DEBUG] readPdfMetaTitle failed: {$e->getMessage()}\n"
-            );
+            $this->debug('readPdfMetaTitle failed: ' . $e->getMessage());
         }
 
         return null;
