@@ -113,7 +113,7 @@ class IndexPageListener
         }
 
         $indexPdfs   = (bool) Config::get('meilisearch_index_pdfs');
-        $indexOffice = (bool) Config::get('meilisearch_index_office_pdfs');
+        $indexOffice = (bool) Config::get('meilisearch_index_office');
 
         if (!$indexPdfs && !$indexOffice) {
             return;
