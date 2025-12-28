@@ -15,92 +15,18 @@ class IndexPageListener
 
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
+        fwrite(STDERR, "\n[Meili DEBUG] onIndexPage() called\n");
+
         /*
          * =====================
          * PDF: Reset genau 1× pro Crawl
          * =====================
          */
         try {
+            fwrite(STDERR, "[Meili DEBUG] resetTableOnce()\n");
             $this->pdfIndexService->resetTableOnce();
         } catch (\Throwable $e) {
-            error_log('[ContaoMeilisearch] PDF reset failed: ' . $e->getMessage());
-        }
-
-        /*
-         * =====================
-         * SEITEN-METADATEN
-         * =====================
-         */
-        if (str_contains($content, 'MEILISEARCH_JSON')) {
-            try {
-                $parsed = $this->extractMeilisearchJson($content);
-            } catch (\Throwable $e) {
-                error_log('[ContaoMeilisearch] Failed to extract MEILISEARCH_JSON: ' . $e->getMessage());
-                $parsed = null;
-            }
-
-            if (is_array($parsed)) {
-
-                // PRIORITY
-                $priority =
-                    $parsed['event']['priority']
-                    ?? $parsed['news']['priority']
-                    ?? $parsed['page']['priority']
-                    ?? null;
-
-                if ($priority !== null && $priority !== '') {
-                    $set['priority'] = (int) $priority;
-                }
-
-                // KEYWORDS
-                $keywordSources = [
-                    $parsed['event']['keywords'] ?? null,
-                    $parsed['news']['keywords']  ?? null,
-                    $parsed['page']['keywords']  ?? null,
-                ];
-
-                $keywords = [];
-                foreach ($keywordSources as $src) {
-                    if (!is_string($src) || trim($src) === '') {
-                        continue;
-                    }
-                    foreach (preg_split('/\s+/', trim($src)) as $word) {
-                        $keywords[] = $word;
-                    }
-                }
-
-                if ($keywords) {
-                    $set['keywords'] = implode(' ', array_unique($keywords));
-                }
-
-                // IMAGEPATH
-                if (!empty($parsed['page']['searchimage'])) {
-                    $set['imagepath'] = trim((string) $parsed['page']['searchimage']);
-                }
-
-                // STARTDATE
-                $startDate =
-                    $parsed['event']['startDate']
-                    ?? $parsed['news']['startDate']
-                    ?? null;
-
-                if (is_numeric($startDate) && (int) $startDate > 0) {
-                    $set['startDate'] = (int) $startDate;
-                }
-
-                // CHECKSUM
-                try {
-                    $checksumSeed  = (string) ($data['checksum'] ?? '');
-                    $checksumSeed .= '|' . ($set['keywords']  ?? '');
-                    $checksumSeed .= '|' . ($set['priority']  ?? '');
-                    $checksumSeed .= '|' . ($set['imagepath'] ?? '');
-                    $checksumSeed .= '|' . ($set['startDate'] ?? '');
-
-                    $set['checksum'] = md5($checksumSeed);
-                } catch (\Throwable $e) {
-                    error_log('[ContaoMeilisearch] Failed to generate checksum: ' . $e->getMessage());
-                }
-            }
+            fwrite(STDERR, "[Meili DEBUG] PDF reset failed: {$e->getMessage()}\n");
         }
 
         /*
@@ -109,65 +35,89 @@ class IndexPageListener
          * =====================
          */
         if ((int) ($data['protected'] ?? 0) !== 0) {
+            fwrite(STDERR, "[Meili DEBUG] Page is protected → skip files\n");
             return;
         }
 
         $indexPdfs   = (bool) Config::get('meilisearch_index_pdfs');
         $indexOffice = (bool) Config::get('meilisearch_index_office');
 
+        fwrite(
+            STDERR,
+            "[Meili DEBUG] Settings: pdfs="
+            . ($indexPdfs ? '1' : '0')
+            . " office="
+            . ($indexOffice ? '1' : '0')
+            . "\n"
+        );
+
         if (!$indexPdfs && !$indexOffice) {
+            fwrite(STDERR, "[Meili DEBUG] No file indexing enabled → return\n");
             return;
         }
 
         $links = $this->findAllLinks($content);
+        fwrite(STDERR, "[Meili DEBUG] Found " . count($links) . " <a> links\n");
 
         $pdfLinks    = [];
         $officeLinks = [];
 
         foreach ($links as $link) {
-            $type = $this->detectIndexableFileType($link['url']);
+            fwrite(STDERR, "[Meili DEBUG] URL: {$link['url']}\n");
 
-            if ($type === 'pdf' && $indexPdfs) {
-                $pdfLinks[] = $link;
+            $type = $this->detectIndexableFileType($link['url']);
+            fwrite(
+                STDERR,
+                "[Meili DEBUG]  → detected type: "
+                . ($type ?? 'none')
+                . "\n"
+            );
+
+            if ($type === 'pdf') {
+                if ($indexPdfs) {
+                    fwrite(STDERR, "[Meili DEBUG]  → add to PDF queue\n");
+                    $pdfLinks[] = $link;
+                } else {
+                    fwrite(STDERR, "[Meili DEBUG]  → PDF indexing disabled\n");
+                }
                 continue;
             }
 
-            if (
-                in_array($type, ['docx', 'xlsx', 'pptx'], true)
-                && $indexOffice
-            ) {
-                $officeLinks[] = $link;
+            if (in_array($type, ['docx', 'xlsx', 'pptx'], true)) {
+                if ($indexOffice) {
+                    fwrite(STDERR, "[Meili DEBUG]  → add to OFFICE queue\n");
+                    $officeLinks[] = $link;
+                } else {
+                    fwrite(STDERR, "[Meili DEBUG]  → Office indexing disabled\n");
+                }
+                continue;
             }
+
+            fwrite(STDERR, "[Meili DEBUG]  → ignored\n");
         }
+
+        fwrite(
+            STDERR,
+            "[Meili DEBUG] Final queues: pdf="
+            . count($pdfLinks)
+            . " office="
+            . count($officeLinks)
+            . "\n"
+        );
 
         try {
             if ($pdfLinks !== []) {
+                fwrite(STDERR, "[Meili DEBUG] Calling handlePdfLinks()\n");
                 $this->pdfIndexService->handlePdfLinks($pdfLinks);
             }
 
             if ($officeLinks !== []) {
+                fwrite(STDERR, "[Meili DEBUG] Calling handleOfficeLinks()\n");
                 $this->officeIndexService->handleOfficeLinks($officeLinks);
             }
         } catch (\Throwable $e) {
-            error_log('[ContaoMeilisearch] File indexing failed: ' . $e->getMessage());
+            fwrite(STDERR, "[Meili DEBUG] File indexing failed: {$e->getMessage()}\n");
         }
-    }
-
-    /**
-     * Extrahiert MEILISEARCH_JSON aus HTML-Kommentar
-     */
-    private function extractMeilisearchJson(string $content): ?array
-    {
-        if (!preg_match('/<!--\s*MEILISEARCH_JSON\s*(\{.*?\})\s*-->/s', $content, $m)) {
-            return null;
-        }
-
-        $json = preg_replace('/^\xEF\xBB\xBF/', '', trim($m[1]));
-        $data = json_decode($json, true);
-
-        return json_last_error() === JSON_ERROR_NONE && is_array($data)
-            ? $data
-            : null;
     }
 
     /**
@@ -200,35 +150,39 @@ class IndexPageListener
      */
     private function detectIndexableFileType(string $url): ?string
     {
-        // Hash entfernen
-        $url = strtok($url, '#');
+        fwrite(STDERR, "[Meili DEBUG] detectIndexableFileType(): $url\n");
 
+        $url = strtok($url, '#');
         $parts = parse_url($url);
+
         if (!$parts) {
+            fwrite(STDERR, "[Meili DEBUG]  → parse_url failed\n");
             return null;
         }
 
-        // direkter Pfad (/files/…)
         if (!empty($parts['path'])) {
             $ext = strtolower(pathinfo($parts['path'], PATHINFO_EXTENSION));
+            fwrite(STDERR, "[Meili DEBUG]  → path ext: $ext\n");
+
             if (in_array($ext, ['pdf', 'docx', 'xlsx', 'pptx'], true)) {
                 return $ext;
             }
         }
 
-        // Query-Parameter (Contao 4 + 5)
         if (!empty($parts['query'])) {
             parse_str($parts['query'], $query);
 
             foreach (['file', 'p', 'f'] as $param) {
                 if (!empty($query[$param])) {
-                    $candidate = (string) $query[$param];
-
-                    // sicher decodieren (Contao 4 + 5)
-                    $candidate = html_entity_decode($candidate, ENT_QUOTES);
-                    $candidate = rawurldecode($candidate);
+                    $candidate = rawurldecode(
+                        html_entity_decode((string) $query[$param], ENT_QUOTES)
+                    );
 
                     $ext = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
+                    fwrite(
+                        STDERR,
+                        "[Meili DEBUG]  → query $param=$candidate ext=$ext\n"
+                    );
 
                     if (in_array($ext, ['pdf', 'docx', 'xlsx', 'pptx'], true)) {
                         return $ext;
