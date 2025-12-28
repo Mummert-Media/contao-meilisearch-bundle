@@ -41,21 +41,18 @@ class IndexPageListener
 
             if (is_array($parsed)) {
 
-                /*
-                 * PRIORITY
-                 */
+                // PRIORITY
                 $priority =
-                    $parsed['event']['priority'] ?? null ??
-                    $parsed['news']['priority']  ?? null ??
-                    $parsed['page']['priority']  ?? null;
+                    $parsed['event']['priority']
+                    ?? $parsed['news']['priority']
+                    ?? $parsed['page']['priority']
+                    ?? null;
 
                 if ($priority !== null && $priority !== '') {
                     $set['priority'] = (int) $priority;
                 }
 
-                /*
-                 * KEYWORDS
-                 */
+                // KEYWORDS
                 $keywordSources = [
                     $parsed['event']['keywords'] ?? null,
                     $parsed['news']['keywords']  ?? null,
@@ -67,11 +64,8 @@ class IndexPageListener
                     if (!is_string($src) || trim($src) === '') {
                         continue;
                     }
-
                     foreach (preg_split('/\s+/', trim($src)) as $word) {
-                        if ($word !== '') {
-                            $keywords[] = $word;
-                        }
+                        $keywords[] = $word;
                     }
                 }
 
@@ -79,33 +73,22 @@ class IndexPageListener
                     $set['keywords'] = implode(' ', array_unique($keywords));
                 }
 
-                /*
-                 * IMAGEPATH (UUID)
-                 */
-                if (
-                    isset($parsed['page']['searchimage'])
-                    && is_string($parsed['page']['searchimage'])
-                    && $parsed['page']['searchimage'] !== ''
-                ) {
-                    $set['imagepath'] = trim($parsed['page']['searchimage']);
+                // IMAGEPATH
+                if (!empty($parsed['page']['searchimage'])) {
+                    $set['imagepath'] = trim((string) $parsed['page']['searchimage']);
                 }
 
-                /*
-                 * STARTDATE (Unix Timestamp)
-                 */
+                // STARTDATE
                 $startDate =
-                    $parsed['event']['startDate'] ?? null ??
-                    $parsed['news']['startDate']  ?? null;
+                    $parsed['event']['startDate']
+                    ?? $parsed['news']['startDate']
+                    ?? null;
 
                 if (is_numeric($startDate) && (int) $startDate > 0) {
                     $set['startDate'] = (int) $startDate;
                 }
 
-                /*
-                 * =====================
-                 * CHECKSUM-FIX
-                 * =====================
-                 */
+                // CHECKSUM
                 try {
                     $checksumSeed  = (string) ($data['checksum'] ?? '');
                     $checksumSeed .= '|' . ($set['keywords']  ?? '');
@@ -122,40 +105,51 @@ class IndexPageListener
 
         /*
          * =====================
-         * PDF-INDEXIERUNG
+         * DATEI-INDEXIERUNG (PDF / OFFICE)
          * =====================
          */
-        if (
-            (bool) Config::get('meilisearch_index_pdfs')
-            && (int) ($data['protected'] ?? 0) === 0
-        ) {
-            try {
-                $pdfLinks = $this->findPdfLinks($content);
-                if ($pdfLinks !== []) {
-                    $this->pdfIndexService->handlePdfLinks($pdfLinks);
-                }
-            } catch (\Throwable $e) {
-                error_log('[ContaoMeilisearch] PDF indexing failed: ' . $e->getMessage());
+        if ((int) ($data['protected'] ?? 0) !== 0) {
+            return;
+        }
+
+        $indexPdfs   = (bool) Config::get('meilisearch_index_pdfs');
+        $indexOffice = (bool) Config::get('meilisearch_index_office_pdfs');
+
+        if (!$indexPdfs && !$indexOffice) {
+            return;
+        }
+
+        $links = $this->findAllLinks($content);
+
+        $pdfLinks    = [];
+        $officeLinks = [];
+
+        foreach ($links as $link) {
+            $type = $this->detectIndexableFileType($link['url']);
+
+            if ($type === 'pdf' && $indexPdfs) {
+                $pdfLinks[] = $link;
+                continue;
+            }
+
+            if (
+                in_array($type, ['docx', 'xlsx', 'pptx'], true)
+                && $indexOffice
+            ) {
+                $officeLinks[] = $link;
             }
         }
 
-        /*
-         * =====================
-         * OFFICE-INDEXIERUNG
-         * =====================
-         */
-        if (
-            (bool) Config::get('meilisearch_index_office')
-            && (int) ($data['protected'] ?? 0) === 0
-        ) {
-            try {
-                $officeLinks = $this->findOfficeLinks($content);
-                if ($officeLinks !== []) {
-                    $this->officeIndexService->handleOfficeLinks($officeLinks);
-                }
-            } catch (\Throwable $e) {
-                error_log('[ContaoMeilisearch] Office indexing failed: ' . $e->getMessage());
+        try {
+            if ($pdfLinks !== []) {
+                $this->pdfIndexService->handlePdfLinks($pdfLinks);
             }
+
+            if ($officeLinks !== []) {
+                $this->officeIndexService->handleOfficeLinks($officeLinks);
+            }
+        } catch (\Throwable $e) {
+            error_log('[ContaoMeilisearch] File indexing failed: ' . $e->getMessage());
         }
     }
 
@@ -171,61 +165,73 @@ class IndexPageListener
         $json = preg_replace('/^\xEF\xBB\xBF/', '', trim($m[1]));
         $data = json_decode($json, true);
 
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            error_log('[ContaoMeilisearch] Invalid MEILISEARCH_JSON: ' . json_last_error_msg());
+        return json_last_error() === JSON_ERROR_NONE && is_array($data)
+            ? $data
+            : null;
+    }
+
+    /**
+     * Sammle alle <a href="…"> Links
+     */
+    private function findAllLinks(string $content): array
+    {
+        if (!preg_match_all(
+            '/<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/is',
+            $content,
+            $matches
+        )) {
+            return [];
+        }
+
+        $result = [];
+
+        foreach ($matches[1] as $i => $href) {
+            $result[] = [
+                'url'      => html_entity_decode($href),
+                'linkText' => trim(strip_tags($matches[2][$i])) ?: null,
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Ermittelt indexierbaren Dateityp (pdf|docx|xlsx|pptx) oder null
+     */
+    private function detectIndexableFileType(string $url): ?string
+    {
+        // Hash entfernen
+        $url = strtok($url, '#');
+
+        $parts = parse_url($url);
+        if (!$parts) {
             return null;
         }
 
-        return is_array($data) ? $data : null;
-    }
-
-    /**
-     * Findet PDF-Links im Content
-     */
-    private function findPdfLinks(string $content): array
-    {
-        if (!preg_match_all(
-            '/<a\s+[^>]*href=["\']([^"\']*(?:\.pdf|p=pdf(?:%2F|\/)[^"\']*))["\'][^>]*>(.*?)<\/a>/is',
-            $content,
-            $matches
-        )) {
-            return [];
+        // direkter Pfad (/files/…)
+        if (!empty($parts['path'])) {
+            $ext = strtolower(pathinfo($parts['path'], PATHINFO_EXTENSION));
+            if (in_array($ext, ['pdf', 'docx', 'xlsx', 'pptx'], true)) {
+                return $ext;
+            }
         }
 
-        $result = [];
+        // Query-Parameter (Contao 4 + 5)
+        if (!empty($parts['query'])) {
+            parse_str($parts['query'], $query);
 
-        foreach ($matches[1] as $i => $href) {
-            $result[] = [
-                'url'      => html_entity_decode($href),
-                'linkText' => trim(strip_tags($matches[2][$i])) ?: null,
-            ];
+            foreach (['file', 'p', 'f'] as $param) {
+                if (!empty($query[$param])) {
+                    $candidate = urldecode((string) $query[$param]);
+                    $ext = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
+
+                    if (in_array($ext, ['pdf', 'docx', 'xlsx', 'pptx'], true)) {
+                        return $ext;
+                    }
+                }
+            }
         }
 
-        return $result;
-    }
-
-    /**
-     * Findet Office-Links (docx, xlsx, pptx)
-     */
-    private function findOfficeLinks(string $content): array
-    {
-        if (!preg_match_all(
-            '/<a\s+[^>]*href=["\']([^"\']*(?:\.(?:docx|xlsx|pptx)|p=(?:docx|xlsx|pptx)(?:%2F|\/)[^"\']*))["\'][^>]*>(.*?)<\/a>/is',
-            $content,
-            $matches
-        )) {
-            return [];
-        }
-
-        $result = [];
-
-        foreach ($matches[1] as $i => $href) {
-            $result[] = [
-                'url'      => html_entity_decode($href),
-                'linkText' => trim(strip_tags($matches[2][$i])) ?: null,
-            ];
-        }
-
-        return $result;
+        return null;
     }
 }
