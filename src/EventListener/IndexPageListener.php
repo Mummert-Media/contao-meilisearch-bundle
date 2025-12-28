@@ -222,7 +222,12 @@ class IndexPageListener
 
             foreach (['file', 'p', 'f'] as $param) {
                 if (!empty($query[$param])) {
-                    $candidate = urldecode((string) $query[$param]);
+                    $candidate = (string) $query[$param];
+
+                    // sicher decodieren (Contao 4 + 5)
+                    $candidate = html_entity_decode($candidate, ENT_QUOTES);
+                    $candidate = rawurldecode($candidate);
+
                     $ext = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
 
                     if (in_array($ext, ['pdf', 'docx', 'xlsx', 'pptx'], true)) {
