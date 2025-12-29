@@ -4,28 +4,57 @@ Contao 5 – Frontend Module Template
 #}
 <!-- indexer::stop -->
 <div
+        id="topsearch"
         class="meilisearch-search"
         data-limit="{{ meiliLimit }}"
 >
-    <div class="meilisearch-search-field">
-        <input
-                type="search"
-                id="meilisearch-input"
-                placeholder="Suche …"
-                autocomplete="off"
-        >
+    <div class="headersearch">
+        <form id="search-form" onsubmit="return false;">
+            <div class="formbody">
+                <div class="widget widget-text">
+                    <label for="search_input" class="invisible">
+                        {{ 'Suchen'|trans }}
+                    </label>
 
-        <button
-                type="button"
-                class="meilisearch-clear"
-                aria-label="Suche löschen"
-                hidden
-        >
-            ×
-        </button>
+                    <div class="search-field">
+                        <input
+                                type="search"
+                                name="keywords"
+                                id="search_input"
+                                class="text"
+                                placeholder="Suchbegriff eingeben..."
+                                autocomplete="off"
+                        >
+
+                        <button
+                                type="button"
+                                class="meilisearch-clear"
+                                aria-label="Suche löschen"
+                                hidden
+                        >
+                            ×
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+
+        <div id="search-results"></div>
+
+        <template id="search-result-template">
+            <div class="search-item">
+                <div class="siteimage"></div>
+
+                <div class="teaser">
+                    <div class="title"></div>
+                    <div class="extract"></div>
+                    <div class="pfad"></div>
+                </div>
+
+                <a class="masterurl" href="#" title=""></a>
+            </div>
+        </template>
     </div>
-
-    <div id="meilisearch-results" class="meilisearch-results"></div>
 </div>
 <!-- indexer::continue -->
 <script type="module">
@@ -38,9 +67,15 @@ Contao 5 – Frontend Module Template
             return;
         }
 
-        const input   = wrapper.querySelector('#meilisearch-input');
+        const input   = wrapper.querySelector('#search_input');
         const clear   = wrapper.querySelector('.meilisearch-clear');
-        const results = wrapper.querySelector('#meilisearch-results');
+        const results = wrapper.querySelector('#search-results');
+        const template = wrapper.querySelector('#search-result-template');
+
+        if (!input || !results || !template) {
+            console.warn('[Meilisearch] Required elements not found');
+            return;
+        }
 
         const limit = parseInt(wrapper.dataset.limit, 10) || 50;
 
@@ -53,6 +88,9 @@ Contao 5 – Frontend Module Template
 
         let abortController = null;
 
+        // ----------------------------
+        // Clear button
+        // ----------------------------
         clear.addEventListener('click', () => {
             input.value = '';
             results.innerHTML = '';
@@ -60,6 +98,9 @@ Contao 5 – Frontend Module Template
             input.focus();
         });
 
+        // ----------------------------
+        // Input handling
+        // ----------------------------
         input.addEventListener('input', async () => {
 
             const query = input.value.trim();
@@ -97,49 +138,59 @@ Contao 5 – Frontend Module Template
 
             } catch (e) {
                 if (e.name !== 'AbortError') {
-                    console.error('Meilisearch error:', e);
+                    console.error('[Meilisearch]', e);
                 }
             }
         });
 
+        // ----------------------------
+        // Render results via <template>
+        // ----------------------------
         function renderResults(hits) {
 
             results.innerHTML = '';
 
-            if (!hits.length) {
+            if (!hits || !hits.length) {
                 return;
             }
 
             for (const hit of hits) {
 
-                const article = document.createElement('article');
-                article.className = 'meilisearch-result type-' + (hit.type || 'default');
+                const node = template.content.cloneNode(true);
 
-                const link = document.createElement('a');
-                link.href = hit.url || '#';
-                link.className = 'meilisearch-link';
+                const image   = node.querySelector('.siteimage');
+                const title   = node.querySelector('.title');
+                const extract = node.querySelector('.extract');
+                const path    = node.querySelector('.pfad');
+                const link    = node.querySelector('.masterurl');
 
-                if (hit.poster) {
-                    const img = document.createElement('img');
-                    img.src = hit.poster;
-                    img.alt = '';
-                    img.loading = 'lazy';
-                    link.appendChild(img);
-                }
-
-                const title = document.createElement('h3');
+                // Title
                 title.textContent = hit.title || '';
-                link.appendChild(title);
 
+                // Link
+                link.href = hit.url || '#';
+                link.title = hit.title || '';
+
+                // Extract / highlight
                 if (hit._formatted?.text) {
-                    const extract = document.createElement('p');
-                    extract.className = 'meilisearch-extract';
                     extract.innerHTML = hit._formatted.text;
-                    link.appendChild(extract);
+                } else {
+                    extract.textContent = '';
                 }
 
-                article.appendChild(link);
-                results.appendChild(article);
+                // Path (URL ohne Schema)
+                if (hit.url) {
+                    path.textContent = hit.url.replace(/^https?:\/\//, '');
+                }
+
+                // Image
+                if (hit.poster) {
+                    image.style.backgroundImage = `url(${hit.poster})`;
+                } else {
+                    image.style.backgroundImage = '';
+                }
+
+                results.appendChild(node);
             }
         }
     });
