@@ -215,40 +215,8 @@ class MeilisearchPageMarkerListener
 
         $injection = $hiddenMeta . $marker;
 
-        return $this->injectIntoMainInside($buffer, $injection);
-    }
-    private function injectIntoMainInside(string $buffer, string $injection): string
-    {
-        // 1. <div id="main"> finden
-        $mainPos = stripos($buffer, '<div id="main"');
-        if ($mainPos === false) {
-            // Fallback: vor </body>
-            return str_contains($buffer, '</body>')
-                ? str_replace('</body>', $injection . '</body>', $buffer)
-                : $buffer . $injection;
-        }
-
-        // 2. Ab dort <div class="inside"> suchen
-        $afterMain = substr($buffer, $mainPos);
-        $insidePos = stripos($afterMain, '<div class="inside"');
-        if ($insidePos === false) {
-            // Fallback: direkt nach <div id="main">
-            $insertPos = $mainPos + strlen('<div id="main">');
-            return substr($buffer, 0, $insertPos)
-                . "\n" . $injection . "\n"
-                . substr($buffer, $insertPos);
-        }
-
-        // 3. Ende des opening <div class="inside"> suchen
-        $openTagEnd = stripos($afterMain, '>', $insidePos);
-        if ($openTagEnd === false) {
-            return $buffer;
-        }
-
-        $insertPos = $mainPos + $openTagEnd + 1;
-
-        return substr($buffer, 0, $insertPos)
-            . "\n" . $injection . "\n"
-            . substr($buffer, $insertPos);
+        return str_contains($buffer, '</main>')
+            ? str_replace('</main>', $injection . '</main>', $buffer)
+            : $buffer . $injection;
     }
 }
