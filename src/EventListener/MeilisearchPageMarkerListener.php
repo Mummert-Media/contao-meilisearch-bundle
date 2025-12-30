@@ -12,7 +12,7 @@ class MeilisearchPageMarkerListener
 {
     public function onOutputFrontendTemplate(string $buffer, string $template): string
     {
-        if (!in_array($template, ['fe_page', 'fe_custom'], true)) {
+        if (!in_array($template, ['fe_page', 'fe_page_indexing'], true)) {
             return $buffer;
         }
 
