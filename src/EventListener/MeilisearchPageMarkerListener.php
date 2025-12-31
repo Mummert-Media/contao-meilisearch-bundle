@@ -29,7 +29,7 @@ class MeilisearchPageMarkerListener
             $mainHtml = $m[1];
 
             if (preg_match(
-                '#<img[^>]+meilisearch-uuid=["\']([a-f0-9-]{36})["\']#i',
+                '#meilisearch-uuid=["\']([a-f0-9-]{36})["\']#i',
                 $mainHtml,
                 $mm
             )) {
