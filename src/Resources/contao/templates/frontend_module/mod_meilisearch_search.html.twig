@@ -157,6 +157,8 @@ Contao 5 – Frontend Module Template
 
             for (const hit of hits) {
 
+                console.log('hit.type =', hit.type); // ← HIER
+
                 const node = template.content.cloneNode(true);
                 const item = node.children[0]; // 🔒 sicher
 
