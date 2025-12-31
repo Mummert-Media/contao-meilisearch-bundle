@@ -165,6 +165,15 @@ Contao 5 – Frontend Module Template
                 const path    = node.querySelector('.pfad');
                 const link    = node.querySelector('.masterurl');
 
+                // Type → CSS-Klasse
+                if (hit.type) {
+                    item.classList.add(
+                        String(hit.type)
+                            .toLowerCase()
+                            .replace(/[^a-z0-9_-]/g, '')
+                    );
+                }
+
                 title.textContent = hit.title || '';
                 link.href = hit.url || '#';
                 link.title = hit.title || '';
