@@ -158,11 +158,12 @@ Contao 5 – Frontend Module Template
             for (const hit of hits) {
 
                 const node = template.content.cloneNode(true);
-                const item = node.querySelector(':scope > .search-item');
+                const item = node.children[0]; // 🔒 sicher
 
-                // 🔥 HIER DEBUG (einmal testen!)
-                console.log('TYPE FROM MEILI:', hit.type);
+                // DEBUG – einmal prüfen
+                console.log('TYPE:', hit.type);
 
+                // Type → CSS-Klasse
                 if (hit.type) {
                     item.classList.add(
                         String(hit.type)
