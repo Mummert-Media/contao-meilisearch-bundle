@@ -20,6 +20,25 @@ class MeilisearchPageMarkerListener
 
         /*
          * =====================
+         * CONTENT-BILD (TOP PRIORITÄT)
+         * =====================
+         */
+        $contentImageUuid = null;
+
+        if (preg_match('#<main\b[^>]*>(.*?)</main>#si', $buffer, $m)) {
+            $mainHtml = $m[1];
+
+            if (preg_match(
+                '#<img[^>]+meilisearch-uuid=["\']([a-f0-9-]{36})["\']#i',
+                $mainHtml,
+                $mm
+            )) {
+                $contentImageUuid = $mm[1];
+            }
+        }
+
+        /*
+         * =====================
          * PAGE (Basisdaten)
          * =====================
          */
@@ -41,7 +60,6 @@ class MeilisearchPageMarkerListener
             if (!empty($page->searchimage)) {
                 $raw = (string) $page->searchimage;
 
-                // UUID-String oder BINARY(16)
                 if (preg_match('/^[a-f0-9-]{36}$/i', $raw)) {
                     $pageImageUuid = $raw;
                 } else {
@@ -54,7 +72,7 @@ class MeilisearchPageMarkerListener
 
         /*
          * =====================
-         * JSON-LD AUSWERTEN (ohne Regex-Fallen)
+         * JSON-LD AUSWERTEN
          * =====================
          */
         preg_match_all(
@@ -98,7 +116,6 @@ class MeilisearchPageMarkerListener
                                 $data['event']['searchimage'] = StringUtil::binToUuid($event->singleSRC);
                             }
 
-                            // ✅ STARTDATE (Unix Timestamp)
                             if (!empty($event->startDate)) {
                                 $data['event']['startDate'] = (int) $event->startDate;
                             }
@@ -140,13 +157,20 @@ class MeilisearchPageMarkerListener
          */
         $finalSearchImageUuid = null;
 
-        if (!empty($data['event']['searchimage'])) {
+        // 🔥 TOP-PRIORITÄT: Content-Bild
+        if ($contentImageUuid !== null) {
+            $finalSearchImageUuid = $contentImageUuid;
+        }
+        elseif (!empty($data['event']['searchimage'])) {
             $finalSearchImageUuid = $data['event']['searchimage'];
-        } elseif (!empty($data['news']['searchimage'])) {
+        }
+        elseif (!empty($data['news']['searchimage'])) {
             $finalSearchImageUuid = $data['news']['searchimage'];
-        } elseif ($pageImageUuid) {
+        }
+        elseif ($pageImageUuid) {
             $finalSearchImageUuid = $pageImageUuid;
-        } else {
+        }
+        else {
             $fallback = Config::get('meilisearch_fallback_image');
             if ($fallback) {
                 $finalSearchImageUuid = $fallback;
@@ -164,37 +188,27 @@ class MeilisearchPageMarkerListener
 
         /*
          * =====================
-         * META-SPAN (ALLES REIN!)
+         * META-SPAN
          * =====================
          */
         $metaParts = [];
 
-        // PAGE
         if (!empty($data['page']['priority'])) {
-            $metaParts[] = 'page_priority=' . (int) $data['page']['priority'];
+            $metaParts[] = 'page_priority=' . $data['page']['priority'];
         }
         if (!empty($data['page']['keywords'])) {
-            $metaParts[] = 'page_keywords=' . (string) $data['page']['keywords'];
+            $metaParts[] = 'page_keywords=' . $data['page']['keywords'];
         }
         if (!empty($data['page']['searchimage'])) {
-            $metaParts[] = 'page_searchimage=' . (string) $data['page']['searchimage'];
+            $metaParts[] = 'page_searchimage=' . $data['page']['searchimage'];
+        }
+        if ($contentImageUuid) {
+            $metaParts[] = 'content_searchimage=' . $contentImageUuid;
         }
 
-        // EVENT
-        if (!empty($data['event']['priority'])) {
-            $metaParts[] = 'event_priority=' . (int) $data['event']['priority'];
-        }
-        if (!empty($data['event']['keywords'])) {
-            $metaParts[] = 'event_keywords=' . (string) $data['event']['keywords'];
-        }
-        if (!empty($data['event']['searchimage'])) {
-            $metaParts[] = 'event_searchimage=' . (string) $data['event']['searchimage'];
-        }
         if (!empty($data['event']['startDate'])) {
-            $metaParts[] = 'event_startDate=' . (int) $data['event']['startDate'];
+            $metaParts[] = 'event_startDate=' . $data['event']['startDate'];
         }
-
-        $metaText = 'MEILISEARCH_META ' . implode(' | ', $metaParts);
 
         $hiddenMeta =
             "\n<span class=\"meilisearch-meta\" style=\"display:none !important\">" .
@@ -203,11 +217,6 @@ class MeilisearchPageMarkerListener
             " ⟦/MEILISEARCH_META⟧" .
             "</span>\n";
 
-        /*
-         * =====================
-         * JSON-MARKER
-         * =====================
-         */
         $marker =
             "\n<!--\nMEILISEARCH_JSON\n" .
             json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) .
