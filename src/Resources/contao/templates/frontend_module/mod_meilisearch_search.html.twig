@@ -2,6 +2,7 @@
 Meilisearch Frontend Search
 Contao 5 – Frontend Module Template
 #}
+
 <!-- indexer::stop -->
 <div
         id="topsearch"
@@ -22,15 +23,14 @@ Contao 5 – Frontend Module Template
                                 name="keywords"
                                 id="search_input"
                                 class="text"
-                                placeholder="Suchbegriff eingeben..."
+                                placeholder="Suchbegriff eingeben…"
                                 autocomplete="off"
                         >
 
                         <button
                                 type="button"
-                                class="clear-button"
+                                class="clear-button is-hidden"
                                 aria-label="Suche löschen"
-                                hidden
                         >
                             ×
                         </button>
@@ -62,17 +62,15 @@ Contao 5 – Frontend Module Template
 
     document.addEventListener('DOMContentLoaded', () => {
 
-        const wrapper = document.querySelector('.meilisearch-search');
-        if (!wrapper) {
-            return;
-        }
+        const wrapper  = document.querySelector('.meilisearch-search');
+        if (!wrapper) return;
 
-        const input   = wrapper.querySelector('#search_input');
-        const clear   = wrapper.querySelector('.meilisearch-clear');
-        const results = wrapper.querySelector('#search-results');
+        const input    = wrapper.querySelector('#search_input');
+        const clear    = wrapper.querySelector('.clear-button');
+        const results  = wrapper.querySelector('#search-results');
         const template = wrapper.querySelector('#search-result-template');
 
-        if (!input || !results || !template) {
+        if (!input || !clear || !results || !template) {
             console.warn('[Meilisearch] Required elements not found');
             return;
         }
@@ -94,7 +92,7 @@ Contao 5 – Frontend Module Template
         clear.addEventListener('click', () => {
             input.value = '';
             results.innerHTML = '';
-            clear.hidden = true;
+            clear.classList.add('is-hidden');
             input.focus();
         });
 
@@ -104,7 +102,8 @@ Contao 5 – Frontend Module Template
         input.addEventListener('input', async () => {
 
             const query = input.value.trim();
-            clear.hidden = query.length === 0;
+
+            clear.classList.toggle('is-hidden', query.length === 0);
 
             if (query.length < 2) {
                 results.innerHTML = '';
@@ -116,7 +115,7 @@ Contao 5 – Frontend Module Template
 
             try {
                 const response = await index.search(query, {
-                    limit: limit,
+                    limit,
 
                     attributesToRetrieve: [
                         'title',
@@ -164,26 +163,20 @@ Contao 5 – Frontend Module Template
                 const path    = node.querySelector('.pfad');
                 const link    = node.querySelector('.masterurl');
 
-                // Title
                 title.textContent = hit.title || '';
-
-                // Link
                 link.href = hit.url || '#';
                 link.title = hit.title || '';
 
-                // Extract / highlight
                 if (hit._formatted?.text) {
                     extract.innerHTML = hit._formatted.text;
                 } else {
                     extract.textContent = '';
                 }
 
-                // Path (URL ohne Schema)
                 if (hit.url) {
                     path.textContent = hit.url.replace(/^https?:\/\//, '');
                 }
 
-                // Image
                 if (hit.poster) {
                     image.style.backgroundImage = `url(${hit.poster})`;
                 } else {
