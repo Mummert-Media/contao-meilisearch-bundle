@@ -158,14 +158,9 @@ Contao 5 – Frontend Module Template
             for (const hit of hits) {
 
                 const node = template.content.cloneNode(true);
+                const item = node.firstElementChild;
 
-                const image   = node.querySelector('.siteimage');
-                const title   = node.querySelector('.title');
-                const extract = node.querySelector('.extract');
-                const path    = node.querySelector('.pfad');
-                const link    = node.querySelector('.masterurl');
-
-                // Type → CSS-Klasse
+                // TYPE → CSS-Klasse
                 if (hit.type) {
                     item.classList.add(
                         String(hit.type)
@@ -173,6 +168,13 @@ Contao 5 – Frontend Module Template
                             .replace(/[^a-z0-9_-]/g, '')
                     );
                 }
+
+                const image   = item.querySelector('.siteimage');
+                const img     = image.querySelector('img');
+                const title   = item.querySelector('.title');
+                const extract = item.querySelector('.extract');
+                const path    = item.querySelector('.pfad');
+                const link    = item.querySelector('.masterurl');
 
                 title.textContent = hit.title || '';
                 link.href = hit.url || '#';
