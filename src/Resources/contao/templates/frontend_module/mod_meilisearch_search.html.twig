@@ -158,9 +158,11 @@ Contao 5 – Frontend Module Template
             for (const hit of hits) {
 
                 const node = template.content.cloneNode(true);
-                const item = node.firstElementChild; // <div class="search-item">
+                const item = node.querySelector(':scope > .search-item');
 
-                // TYPE → CSS-Klasse
+                // 🔥 HIER DEBUG (einmal testen!)
+                console.log('TYPE FROM MEILI:', hit.type);
+
                 if (hit.type) {
                     item.classList.add(
                         String(hit.type)
@@ -170,7 +172,7 @@ Contao 5 – Frontend Module Template
                 }
 
                 const image   = item.querySelector('.siteimage');
-                const img     = image.querySelector('img'); // ✅ EINMAL
+                const img     = image.querySelector('img');
                 const title   = item.querySelector('.title');
                 const extract = item.querySelector('.extract');
                 const path    = item.querySelector('.pfad');
