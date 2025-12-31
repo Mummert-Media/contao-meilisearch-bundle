@@ -43,7 +43,9 @@ Contao 5 – Frontend Module Template
 
         <template id="search-result-template">
             <div class="search-item">
-                <div class="siteimage"></div>
+                <div class="siteimage">
+                    <img src="" alt="" loading="lazy">
+                </div>
 
                 <div class="teaser">
                     <div class="title"></div>
@@ -177,10 +179,16 @@ Contao 5 – Frontend Module Template
                     path.textContent = hit.url.replace(/^https?:\/\//, '');
                 }
 
+                const img = image.querySelector('img');
+
                 if (hit.poster) {
-                    image.style.backgroundImage = `url(${hit.poster})`;
+                    img.src = hit.poster;
+                    img.alt = hit.title || '';
+                    image.classList.remove('is-empty');
                 } else {
-                    image.style.backgroundImage = '';
+                    img.removeAttribute('src');
+                    img.alt = '';
+                    image.classList.add('is-empty');
                 }
 
                 results.appendChild(node);
