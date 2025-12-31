@@ -39,6 +39,21 @@ class MeilisearchPageMarkerListener
 
         /*
          * =====================
+         * KEYWORDS AUS FRONTEND (Catalog Manager)
+         * =====================
+         */
+        $frontendKeywords = [];
+
+        if (preg_match(
+            '#<div[^>]+id=["\']keywords["\'][^>]+meilisearch-keywords=["\']([^"\']+)["\']#i',
+            $buffer,
+            $m
+        )) {
+            $frontendKeywords = preg_split('/\s+/', trim($m[1]));
+        }
+
+        /*
+         * =====================
          * PAGE (Basisdaten)
          * =====================
          */
@@ -152,12 +167,53 @@ class MeilisearchPageMarkerListener
 
         /*
          * =====================
+         * KEYWORDS ZUSAMMENFÜHREN
+         * =====================
+         */
+        $allKeywords = [];
+
+        if (!empty($data['page']['keywords'])) {
+            $allKeywords = array_merge(
+                $allKeywords,
+                preg_split('/\s+/', $data['page']['keywords'])
+            );
+        }
+
+        if (!empty($data['event']['keywords'])) {
+            $allKeywords = array_merge(
+                $allKeywords,
+                preg_split('/\s+/', $data['event']['keywords'])
+            );
+        }
+
+        if (!empty($data['news']['keywords'])) {
+            $allKeywords = array_merge(
+                $allKeywords,
+                preg_split('/\s+/', $data['news']['keywords'])
+            );
+        }
+
+        if (!empty($frontendKeywords)) {
+            $allKeywords = array_merge($allKeywords, $frontendKeywords);
+        }
+
+        $allKeywords = array_unique(
+            array_filter(
+                array_map('trim', $allKeywords)
+            )
+        );
+
+        if ($allKeywords !== []) {
+            $data['page']['keywords'] = implode(' ', $allKeywords);
+        }
+
+        /*
+         * =====================
          * FINALE SEARCHIMAGE-ENTSCHEIDUNG
          * =====================
          */
         $finalSearchImageUuid = null;
 
-        // 🔥 TOP-PRIORITÄT: Content-Bild
         if ($contentImageUuid !== null) {
             $finalSearchImageUuid = $contentImageUuid;
         }
@@ -205,7 +261,6 @@ class MeilisearchPageMarkerListener
         if ($contentImageUuid) {
             $metaParts[] = 'content_searchimage=' . $contentImageUuid;
         }
-
         if (!empty($data['event']['startDate'])) {
             $metaParts[] = 'event_startDate=' . $data['event']['startDate'];
         }
