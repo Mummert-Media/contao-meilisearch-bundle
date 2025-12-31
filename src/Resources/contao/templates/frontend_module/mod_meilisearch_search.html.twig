@@ -153,8 +153,11 @@ Contao 5 – Frontend Module Template
             results.innerHTML = '';
 
             if (!hits || !hits.length) {
+                document.body.classList.remove('search-active');
                 return;
             }
+
+            document.body.classList.add('search-active');
 
             for (const hit of hits) {
 
