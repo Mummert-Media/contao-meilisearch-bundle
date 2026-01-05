@@ -7,11 +7,12 @@ $GLOBALS['TL_DCA']['tl_search_pdf'] = [
         'dataContainer' => DC_Table::class,
         'sql' => [
             'keys' => [
-                'id'       => 'primary',
-                'checksum' => 'unique',
-                'page_id'  => 'index',
-                'url'      => 'index',
-                'type'     => 'index', // ⬅️ NEU
+                'id'        => 'primary',
+                'checksum'  => 'unique',
+                'page_id'   => 'index',
+                'url'       => 'index',
+                'type'      => 'index',
+                'last_seen' => 'index', // ⬅️ NEU (für Cleanup-Performance)
             ],
         ],
     ],
@@ -26,9 +27,17 @@ $GLOBALS['TL_DCA']['tl_search_pdf'] = [
         ],
 
         /*
+         * Zeitpunkt, wann die Datei zuletzt beim Crawl gesehen wurde
+         * → Basis für Cleanup
+         */
+        'last_seen' => [ // ⬅️ NEU
+            'sql' => "int(10) unsigned NOT NULL default 0",
+        ],
+
+        /*
          * Dateityp: pdf | docx | xlsx | pptx
          */
-        'type' => [ // ⬅️ NEU
+        'type' => [
             'sql' => "varchar(16) NOT NULL default 'pdf'",
         ],
 
@@ -64,7 +73,7 @@ $GLOBALS['TL_DCA']['tl_search_pdf'] = [
 
         /*
          * Herkunftsseite (tl_page.id)
-         * → Cleanup / Referenz
+         * → optional, Debug / Referenz
          */
         'page_id' => [
             'sql' => "int(10) unsigned NOT NULL default 0",
