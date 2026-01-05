@@ -16,68 +16,63 @@ class MeilisearchIndexCron
 
     public function __invoke(): void
     {
-        $this->out('=== Meilisearch Cron START ===');
+        $start = microtime(true);
+
+        error_log('[MeilisearchCron] === START ===');
 
         // Contao initialisieren
         $this->framework->initialize();
-        $this->out('Contao framework initialized');
+        error_log('[MeilisearchCron] Contao framework initialized');
 
         // 1) Contao Crawl
-        $this->out('--- Step 1: contao:crawl ---');
-        $this->runConsole('contao:crawl');
+        $this->runConsole(
+            'contao:crawl',
+            'Contao crawl'
+        );
 
-        // 2) Cleanup
-        $this->out('--- Step 2: meilisearch:files:cleanup ---');
-        $this->runConsole('meilisearch:files:cleanup --grace=86400');
+        // 2) Cleanup (24h Grace)
+        $this->runConsole(
+            'meilisearch:files:cleanup',
+            'Meilisearch files cleanup'
+        );
 
         // 3) Meilisearch Index
-        $this->out('--- Step 3: meilisearch:index (service) ---');
-        $this->indexService->run();
-        $this->out('Meilisearch index finished');
+        try {
+            error_log('[MeilisearchCron] Meilisearch index started');
+            $this->indexService->run();
+            error_log('[MeilisearchCron] Meilisearch index finished');
+        } catch (\Throwable $e) {
+            error_log('[MeilisearchCron] ERROR during Meilisearch index: ' . $e->getMessage());
+        }
 
-        $this->out('=== Meilisearch Cron END ===');
+        $duration = round(microtime(true) - $start, 2);
+        error_log('[MeilisearchCron] === END (duration: ' . $duration . 's) ===');
     }
 
-    private function runConsole(string $command): void
+    private function runConsole(string $command, string $label): void
     {
-        $start = microtime(true);
+        error_log('[MeilisearchCron] ' . $label . ' started');
 
         $process = new Process([
-            'php',
+            PHP_BINARY,
             $this->projectDir . '/vendor/bin/contao-console',
             ...explode(' ', $command),
         ]);
 
         $process->setTimeout(null);
-
-        // LIVE-Ausgabe an Konsole durchreichen
-        $process->run(function ($type, $buffer) {
-            echo $buffer;
-        });
-
-        $duration = round(microtime(true) - $start, 2);
-
-        $this->out(sprintf(
-            'Command "%s" finished (exit=%d, time=%ss)',
-            $command,
-            $process->getExitCode(),
-            $duration
-        ));
+        $process->run();
 
         if (!$process->isSuccessful()) {
-            $this->out('ERROR OUTPUT:');
-            echo $process->getErrorOutput();
+            error_log(
+                '[MeilisearchCron] ERROR in ' . $label . ': ' .
+                $process->getErrorOutput()
+            );
+        } else {
+            $output = trim($process->getOutput());
+            if ($output !== '') {
+                error_log('[MeilisearchCron] ' . $label . ' output: ' . $output);
+            }
+            error_log('[MeilisearchCron] ' . $label . ' finished');
         }
-    }
-
-    private function out(string $message): void
-    {
-        $line = '[MeilisearchCron] ' . $message;
-
-        // Konsole
-        echo $line . PHP_EOL;
-
-        // Log (für Cron/Hosting)
-        error_log($line);
     }
 }
