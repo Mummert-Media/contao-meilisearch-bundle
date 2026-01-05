@@ -27,7 +27,7 @@ class MeilisearchFilesCleanupCommand extends Command
                 null,
                 InputOption::VALUE_OPTIONAL,
                 'Grace period in seconds (files newer than now-grace are kept)',
-                3600
+                86400 // 24 Stunden
             )
             ->addOption(
                 'dry-run',
