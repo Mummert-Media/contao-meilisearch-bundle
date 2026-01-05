@@ -32,22 +32,6 @@ class IndexPageListener
 
         /*
          * =====================
-         * PDF: Reset genau 1× pro Crawl
-         * =====================
-         */
-        try {
-            $this->debug('PDF resetTableOnce(): call');
-            $this->pdfIndexService->resetTableOnce();
-            $this->debug('PDF resetTableOnce(): ok');
-        } catch (\Throwable $e) {
-            $this->debug('PDF resetTableOnce(): failed', [
-                'error' => $e->getMessage(),
-                'class' => $e::class,
-            ]);
-        }
-
-        /*
-         * =====================
          * SEITEN-METADATEN
          * =====================
          */

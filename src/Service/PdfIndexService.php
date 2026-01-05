@@ -10,27 +10,9 @@ class PdfIndexService
 {
     private string $projectDir;
 
-    private bool $didReset = false;
-    private array $seenThisCrawl = [];
-
     public function __construct(ParameterBagInterface $params)
     {
         $this->projectDir = rtrim((string) $params->get('kernel.project_dir'), '/');
-    }
-
-    /**
-     * Wird aus dem Listener beim ersten Hook-Call pro Crawl aufgerufen.
-     */
-    public function resetTableOnce(): void
-    {
-        if ($this->didReset) {
-            return;
-        }
-
-        $this->didReset = true;
-        $this->seenThisCrawl = [];
-
-        Database::getInstance()->execute('TRUNCATE tl_search_pdf');
     }
 
     /**
@@ -38,20 +20,24 @@ class PdfIndexService
      */
     public function handlePdfLinks(array $pdfLinks): void
     {
+        // Dedupe nur pro Aufruf (nicht "pro Crawl")
+        $seen = [];
+        $now  = time();
+
         foreach ($pdfLinks as $row) {
-            $url = (string) ($row['url'] ?? '');
+            $url      = (string) ($row['url'] ?? '');
             $linkText = $row['linkText'] ?? null;
 
             if ($url === '') {
                 continue;
             }
 
-            // innerhalb eines Crawls doppelte URLs vermeiden
+            // doppelte URLs pro Aufruf vermeiden
             $seenKey = md5($url);
-            if (isset($this->seenThisCrawl[$seenKey])) {
+            if (isset($seen[$seenKey])) {
                 continue;
             }
-            $this->seenThisCrawl[$seenKey] = true;
+            $seen[$seenKey] = true;
 
             $normalizedPath = $this->normalizePdfUrl($url);
             if ($normalizedPath === null) {
@@ -63,27 +49,42 @@ class PdfIndexService
                 continue;
             }
 
-            $mtime = (int) (filemtime($absolutePath) ?: 0);
+            $mtime    = (int) (filemtime($absolutePath) ?: 0);
             $checksum = md5($normalizedPath . '|' . $mtime);
+
+            // existiert bereits?
+            $existing = Database::getInstance()
+                ->prepare('SELECT checksum FROM tl_search_pdf WHERE url=? LIMIT 1')
+                ->execute($normalizedPath)
+                ->fetchAssoc();
+
+            $needsParse = !$existing || ($existing['checksum'] ?? '') !== $checksum;
 
             // Titel-Priorität:
             // 1) Linktext
             // 2) PDF-Metadaten
             // 3) Dateiname
-            $pdfMetaTitle = $this->readPdfMetaTitle($absolutePath);
-            $title = $linkText ?: ($pdfMetaTitle ?: basename($absolutePath));
+            $title = $linkText ?: basename($absolutePath);
+            $text  = '';
 
-            $text = $this->parsePdf($absolutePath);
-            if ($text === '') {
-                continue;
+            if ($needsParse) {
+                $pdfMetaTitle = $this->readPdfMetaTitle($absolutePath);
+                $title = $linkText ?: ($pdfMetaTitle ?: basename($absolutePath));
+
+                $text = $this->parsePdf($absolutePath);
+                if ($text === '') {
+                    // wenn parsing fehlschlägt, NICHT überschreiben
+                    continue;
+                }
             }
 
             $this->upsertPdf(
                 $normalizedPath,
                 $title,
-                $text,
+                $text,      // kann '' sein → wird in SQL nicht überschrieben
                 $checksum,
-                $mtime
+                $mtime,
+                $now
             );
         }
     }
@@ -91,7 +92,11 @@ class PdfIndexService
     private function normalizePdfUrl(string $url): ?string
     {
         $decoded = html_entity_decode($url);
-        $parts = parse_url($decoded);
+        $parts   = parse_url($decoded);
+
+        if (!$parts) {
+            return null;
+        }
 
         // 1) files/...pdf (ohne führenden Slash)
         if (
@@ -149,23 +154,29 @@ class PdfIndexService
         string $title,
         string $text,
         string $checksum,
-        int $mtime
+        int $mtime,
+        int $now
     ): void {
         Database::getInstance()
             ->prepare('
                 INSERT INTO tl_search_pdf
-                    (tstamp, url, title, text, checksum, file_mtime)
+                    (tstamp, last_seen, type, url, title, text, checksum, file_mtime)
                 VALUES
-                    (?, ?, ?, ?, ?, ?)
+                    (?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
-                    tstamp=VALUES(tstamp),
-                    url=VALUES(url),
-                    title=VALUES(title),
-                    text=VALUES(text),
-                    file_mtime=VALUES(file_mtime)
+                    tstamp     = VALUES(tstamp),
+                    last_seen  = VALUES(last_seen),
+                    type       = VALUES(type),
+                    url        = VALUES(url),
+                    title      = VALUES(title),
+                    checksum   = VALUES(checksum),
+                    file_mtime = VALUES(file_mtime),
+                    text       = IF(VALUES(text) = "" OR VALUES(text) IS NULL, text, VALUES(text))
             ')
             ->execute(
-                time(),
+                $now,
+                $now,
+                'pdf',
                 $url,
                 $title,
                 $text,
@@ -178,8 +189,8 @@ class PdfIndexService
     {
         try {
             $parser = new Parser();
-            $pdf = $parser->parseFile($absolutePath);
-            $text = $this->cleanPdfContent($pdf->getText());
+            $pdf    = $parser->parseFile($absolutePath);
+            $text   = $this->cleanPdfContent($pdf->getText());
 
             return mb_substr($text, 0, 20000);
         } catch (\Throwable) {
@@ -190,8 +201,8 @@ class PdfIndexService
     private function readPdfMetaTitle(string $absolutePath): ?string
     {
         try {
-            $parser = new Parser();
-            $pdf = $parser->parseFile($absolutePath);
+            $parser  = new Parser();
+            $pdf     = $parser->parseFile($absolutePath);
             $details = $pdf->getDetails();
 
             foreach (['Title', 'title'] as $key) {
@@ -203,6 +214,7 @@ class PdfIndexService
                 }
             }
         } catch (\Throwable) {
+            // ignore
         }
 
         return null;

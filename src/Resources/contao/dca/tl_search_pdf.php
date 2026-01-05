@@ -8,10 +8,10 @@ $GLOBALS['TL_DCA']['tl_search_pdf'] = [
         'sql' => [
             'keys' => [
                 'id'        => 'primary',
-                'checksum'  => 'unique',
                 'page_id'   => 'index',
-                'url'       => 'index',
+                'url'       => 'unique',
                 'type'      => 'index',
+                'checksum'  => 'index',
                 'last_seen' => 'index', // ⬅️ NEU (für Cleanup-Performance)
             ],
         ],
