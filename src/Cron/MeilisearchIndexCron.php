@@ -16,28 +16,26 @@ class MeilisearchIndexCron
 
     public function __invoke(): void
     {
-        $this->log('Cron START');
+        $this->out('=== Meilisearch Cron START ===');
 
         // Contao initialisieren
         $this->framework->initialize();
-        $this->log('Contao framework initialized');
+        $this->out('Contao framework initialized');
 
         // 1) Contao Crawl
-        $this->log('Step 1 START: contao:crawl');
+        $this->out('--- Step 1: contao:crawl ---');
         $this->runConsole('contao:crawl');
-        $this->log('Step 1 END: contao:crawl');
 
-        // 2) Cleanup (24h Grace)
-        $this->log('Step 2 START: meilisearch:files:cleanup');
+        // 2) Cleanup
+        $this->out('--- Step 2: meilisearch:files:cleanup ---');
         $this->runConsole('meilisearch:files:cleanup --grace=86400');
-        $this->log('Step 2 END: meilisearch:files:cleanup');
 
         // 3) Meilisearch Index
-        $this->log('Step 3 START: MeilisearchIndexService::run()');
+        $this->out('--- Step 3: meilisearch:index (service) ---');
         $this->indexService->run();
-        $this->log('Step 3 END: MeilisearchIndexService::run()');
+        $this->out('Meilisearch index finished');
 
-        $this->log('Cron END');
+        $this->out('=== Meilisearch Cron END ===');
     }
 
     private function runConsole(string $command): void
@@ -51,11 +49,15 @@ class MeilisearchIndexCron
         ]);
 
         $process->setTimeout(null);
-        $process->run();
+
+        // LIVE-Ausgabe an Konsole durchreichen
+        $process->run(function ($type, $buffer) {
+            echo $buffer;
+        });
 
         $duration = round(microtime(true) - $start, 2);
 
-        $this->log(sprintf(
+        $this->out(sprintf(
             'Command "%s" finished (exit=%d, time=%ss)',
             $command,
             $process->getExitCode(),
@@ -63,17 +65,19 @@ class MeilisearchIndexCron
         ));
 
         if (!$process->isSuccessful()) {
-            $this->log('STDERR: ' . trim($process->getErrorOutput()));
-        } else {
-            $out = trim($process->getOutput());
-            if ($out !== '') {
-                $this->log('STDOUT: ' . $out);
-            }
+            $this->out('ERROR OUTPUT:');
+            echo $process->getErrorOutput();
         }
     }
 
-    private function log(string $message): void
+    private function out(string $message): void
     {
-        error_log('[MeilisearchCron] ' . $message);
+        $line = '[MeilisearchCron] ' . $message;
+
+        // Konsole
+        echo $line . PHP_EOL;
+
+        // Log (für Cron/Hosting)
+        error_log($line);
     }
 }
