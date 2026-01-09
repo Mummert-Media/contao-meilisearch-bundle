@@ -39,39 +39,68 @@ class MeilisearchFilesCleanupCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        // wichtig für Contao 4.13 & 5.x
         $this->framework->initialize();
 
-        $grace  = max(0, (int) $input->getOption('grace'));
-        $dryRun = (bool) $input->getOption('dry-run');
-        $cutoff = time() - $grace;
+        $this->log('Cleaner gestartet');
 
-        if ($dryRun) {
-            $count = Database::getInstance()
-                ->prepare('SELECT COUNT(*) AS cnt FROM tl_search_pdf WHERE last_seen < ?')
+        try {
+            $grace  = max(0, (int) $input->getOption('grace'));
+            $dryRun = (bool) $input->getOption('dry-run');
+            $cutoff = time() - $grace;
+
+            if ($dryRun) {
+                $count = Database::getInstance()
+                    ->prepare('SELECT COUNT(*) AS cnt FROM tl_search_pdf WHERE last_seen < ?')
+                    ->execute($cutoff)
+                    ->cnt;
+
+                $message = sprintf(
+                    '[DRY-RUN] %d stale file(s) would be removed (last_seen < %s)',
+                    $count,
+                    date('Y-m-d H:i:s', $cutoff)
+                );
+
+                $output->writeln('<comment>' . $message . '</comment>');
+                $this->log($message);
+
+                $this->log('Cleaner successfully stopped');
+                return Command::SUCCESS;
+            }
+
+            $affected = Database::getInstance()
+                ->prepare('DELETE FROM tl_search_pdf WHERE last_seen < ?')
                 ->execute($cutoff)
-                ->cnt;
+                ->affectedRows;
 
-            $output->writeln(sprintf(
-                '<comment>[DRY-RUN]</comment> %d stale file(s) would be removed (last_seen < %s)',
-                $count,
+            $message = sprintf(
+                'Removed %d stale file(s) (last_seen < %s)',
+                $affected,
                 date('Y-m-d H:i:s', $cutoff)
-            ));
+            );
 
+            $output->writeln('<info>' . $message . '</info>');
+            $this->log($message);
+
+            $this->log('Cleaner successfully stopped');
             return Command::SUCCESS;
+
+        } catch (\Throwable $e) {
+            $this->log('Cleaner ERROR: ' . $e->getMessage());
+            $output->writeln('<error>' . $e->getMessage() . '</error>');
+
+            return Command::FAILURE;
         }
+    }
 
-        $affected = Database::getInstance()
-            ->prepare('DELETE FROM tl_search_pdf WHERE last_seen < ?')
-            ->execute($cutoff)
-            ->affectedRows;
-
-        $output->writeln(sprintf(
-            '<info>Removed %d stale file(s)</info> (last_seen < %s)',
-            $affected,
-            date('Y-m-d H:i:s', $cutoff)
+    /**
+     * Einheitliches Logging mit Zeitstempel
+     */
+    private function log(string $message): void
+    {
+        error_log(sprintf(
+            '[%s] %s',
+            date('Y-m-d H:i:s'),
+            $message
         ));
-
-        return Command::SUCCESS;
     }
 }
