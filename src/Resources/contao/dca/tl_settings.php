@@ -2,7 +2,6 @@
 
 use Contao\CoreBundle\DataContainer\PaletteManipulator;
 use Contao\System;
-use Contao\Config;
 
 /**
  * -------------------------------------------------
@@ -85,22 +84,11 @@ $GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_index_past_events'] = [
 
 /**
  * -------------------------------------------------
- * PDF / Office Indexierung
+ * Datei-Indexierung (Tika)
  * -------------------------------------------------
  */
 
-$GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_index_pdfs'] = [
-    'label'     => &$GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_pdfs'],
-    'inputType' => 'checkbox',
-    'eval' => [
-        'tl_class'       => 'w50',
-        'submitOnChange' => true,
-    ],
-    'sql' => "char(1) NOT NULL default '1'",
-];
-
-$GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_index_office'] = [
-    'label'     => &$GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_office'],
+$GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_index_files'] = [
     'inputType' => 'checkbox',
     'eval' => [
         'tl_class'       => 'w50',
@@ -108,32 +96,6 @@ $GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_index_office'] = [
     ],
     'sql' => "char(1) NOT NULL default '0'",
 ];
-
-/**
- * -------------------------------------------------
- * Virtueller Sammel-Selector (intern)
- * -------------------------------------------------
- */
-
-$GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_index_documents'] = [
-    'inputType' => 'checkbox',
-    'eval' => [
-        'doNotShow' => true,
-    ],
-    'load_callback' => [
-        static function () {
-            return (Config::get('meilisearch_index_pdfs') || Config::get('meilisearch_index_office'))
-                ? '1'
-                : '';
-        },
-    ],
-];
-
-/**
- * -------------------------------------------------
- * Tika URL (GENAU EINMAL!)
- * -------------------------------------------------
- */
 
 $GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_tika_url'] = [
     'inputType' => 'text',
@@ -150,9 +112,9 @@ $GLOBALS['TL_DCA']['tl_settings']['fields']['meilisearch_tika_url'] = [
  * -------------------------------------------------
  */
 
-$GLOBALS['TL_DCA']['tl_settings']['palettes']['__selector__'][] = 'meilisearch_index_documents';
+$GLOBALS['TL_DCA']['tl_settings']['palettes']['__selector__'][] = 'meilisearch_index_files';
 
-$GLOBALS['TL_DCA']['tl_settings']['subpalettes']['meilisearch_index_documents']
+$GLOBALS['TL_DCA']['tl_settings']['subpalettes']['meilisearch_index_files']
     = 'meilisearch_tika_url';
 
 /**
@@ -170,24 +132,5 @@ PaletteManipulator::create()
     ->addField('meilisearch_imagesize', 'meilisearch_legend')
     ->addField('meilisearch_fallback_image', 'meilisearch_legend')
     ->addField('meilisearch_index_past_events', 'meilisearch_legend')
-    ->addField('meilisearch_index_pdfs', 'meilisearch_legend')
-    ->addField('meilisearch_index_office', 'meilisearch_legend')
+    ->addField('meilisearch_index_files', 'meilisearch_legend')
     ->applyToPalette('default', 'tl_settings');
-
-/**
- * -------------------------------------------------
- * Absicherung beim Speichern
- * -------------------------------------------------
- */
-
-$GLOBALS['TL_DCA']['tl_settings']['config']['onsubmit_callback'][] = static function () {
-    $pdf    = (bool) Config::get('meilisearch_index_pdfs');
-    $office = (bool) Config::get('meilisearch_index_office');
-    $tika   = Config::get('meilisearch_tika_url');
-
-    if (($pdf || $office) && !$tika) {
-        throw new \RuntimeException(
-            'Die Tika-URL ist erforderlich, wenn PDF- oder Office-Indexierung aktiviert ist.'
-        );
-    }
-};
