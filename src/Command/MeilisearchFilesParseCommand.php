@@ -100,7 +100,7 @@ class MeilisearchFilesParseCommand extends Command
             $normalized = strtok($normalized, '#');
 
             // -------------------------------------------------
-            // 3) URL-Decoding (Umlaute, Leerzeichen)
+            // 3) URL-Decoding
             // -------------------------------------------------
             $normalized = rawurldecode($normalized);
 
@@ -140,17 +140,36 @@ class MeilisearchFilesParseCommand extends Command
             }
 
             // -------------------------------------------------
-            // 6) Tika-Parsing
+            // 6) Content-Type anhand Dateiendung
+            // -------------------------------------------------
+            $ext = strtolower(pathinfo($normalized, PATHINFO_EXTENSION));
+
+            $mimeType = match ($ext) {
+                'pdf'  => 'application/pdf',
+                'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                default => null,
+            };
+
+            if ($mimeType === null) {
+                $this->log('Unsupported file type, skip', ['url' => $normalized]);
+                continue;
+            }
+
+            // -------------------------------------------------
+            // 7) Tika-Parsing
             // -------------------------------------------------
             try {
                 $this->log('Parsing file', ['url' => $normalized]);
 
                 $response = $client->request(
                     'PUT',
-                    $tikaUrl . '/tika',
+                    $tikaUrl . '/tika/main',
                     [
                         'headers' => [
-                            'Accept' => 'text/plain',
+                            'Accept'       => 'text/plain',
+                            'Content-Type' => $mimeType,
                         ],
                         'body' => fopen($absolutePath, 'rb'),
                     ]
@@ -172,7 +191,7 @@ class MeilisearchFilesParseCommand extends Command
 
                 $this->log('File parsed', [
                     'url'   => $normalized,
-                    'chars' => strlen($text),
+                    'chars' => mb_strlen($text),
                 ]);
 
             } catch (\Throwable $e) {
