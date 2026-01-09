@@ -3,15 +3,12 @@
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
 use Contao\Config;
-use MummertMedia\ContaoMeilisearchBundle\Service\PdfIndexService;
-use MummertMedia\ContaoMeilisearchBundle\Service\OfficeIndexService;
 
 class IndexPageListener
 {
-    public function __construct(
-        private readonly PdfIndexService $pdfIndexService,
-        private readonly OfficeIndexService $officeIndexService,
-    ) {}
+    public function __construct()
+    {
+    }
 
     private function debug(string $message, array $context = []): void
     {
@@ -103,7 +100,6 @@ class IndexPageListener
                 $this->debug('Meta: searchimage candidate', ['searchimage' => $searchImage]);
 
                 if (!empty($searchImage)) {
-                    // >>> HINWEIS: falls dein tl_search-Feld "image" heißt, hier auf $set['image'] ändern!
                     $set['imagepath'] = trim((string) $searchImage);
                 }
 
@@ -152,7 +148,7 @@ class IndexPageListener
 
         /*
          * =====================
-         * DATEI-INDEXIERUNG (PDF / OFFICE)
+         * DATEI-ERKENNUNG (PDF / OFFICE via Tika)
          * =====================
          */
         if ((int) ($data['protected'] ?? 0) !== 0) {
@@ -160,15 +156,13 @@ class IndexPageListener
             return;
         }
 
-        $indexPdfs   = (bool) Config::get('meilisearch_index_pdfs');
-        $indexOffice = (bool) Config::get('meilisearch_index_office');
+        $indexFiles = (bool) Config::get('meilisearch_index_files');
 
-        $this->debug('File indexing settings', [
-            'meilisearch_index_pdfs'   => $indexPdfs,
-            'meilisearch_index_office' => $indexOffice,
+        $this->debug('File indexing setting', [
+            'meilisearch_index_files' => $indexFiles,
         ]);
 
-        if (!$indexPdfs && !$indexOffice) {
+        if (!$indexFiles) {
             $this->debug('Abort: file indexing disabled');
             return;
         }
@@ -176,45 +170,22 @@ class IndexPageListener
         $links = $this->findAllLinks($content);
         $this->debug('Links found', ['count' => count($links)]);
 
-        $pdfLinks    = [];
-        $officeLinks = [];
+        $fileLinks = [];
 
         foreach ($links as $link) {
             $type = $this->detectIndexableFileType($link['url']);
-
-            if ($type === 'pdf' && $indexPdfs) {
-                $pdfLinks[] = $link;
-                continue;
-            }
-
-            if (in_array($type, ['docx', 'xlsx', 'pptx'], true) && $indexOffice) {
-                $officeLinks[] = $link;
+            if ($type !== null) {
+                $fileLinks[] = $link + ['type' => $type];
             }
         }
 
-        $this->debug('Indexable file links', [
-            'pdf'    => count($pdfLinks),
-            'office' => count($officeLinks),
+        $this->debug('Indexable file links found', [
+            'count' => count($fileLinks),
+            'types' => array_count_values(array_column($fileLinks, 'type')),
         ]);
 
-        try {
-            if ($pdfLinks !== []) {
-                $this->debug('PDF handlePdfLinks(): call', ['count' => count($pdfLinks)]);
-                $this->pdfIndexService->handlePdfLinks($pdfLinks);
-                $this->debug('PDF handlePdfLinks(): ok');
-            }
-
-            if ($officeLinks !== []) {
-                $this->debug('Office handleOfficeLinks(): call', ['count' => count($officeLinks)]);
-                $this->officeIndexService->handleOfficeLinks($officeLinks);
-                $this->debug('Office handleOfficeLinks(): ok');
-            }
-        } catch (\Throwable $e) {
-            $this->debug('File indexing failed', [
-                'error' => $e->getMessage(),
-                'class' => $e::class,
-            ]);
-        }
+        // ❗ ABSICHTLICH: hier passiert NOCH NICHTS
+        // Verarbeitung der Dateien folgt im nächsten Schritt
 
         $this->debug('Hook end', [
             'final_set_keys' => array_keys($set),
@@ -275,7 +246,6 @@ class IndexPageListener
      */
     private function detectIndexableFileType(string $url): ?string
     {
-        // Hash entfernen
         $url = strtok($url, '#');
 
         $parts = parse_url($url);
@@ -283,7 +253,6 @@ class IndexPageListener
             return null;
         }
 
-        // direkter Pfad (/files/…)
         if (!empty($parts['path'])) {
             $ext = strtolower(pathinfo($parts['path'], PATHINFO_EXTENSION));
             if (in_array($ext, ['pdf', 'docx', 'xlsx', 'pptx'], true)) {
@@ -291,18 +260,12 @@ class IndexPageListener
             }
         }
 
-        // Query-Parameter (Contao 4 + 5)
         if (!empty($parts['query'])) {
             parse_str($parts['query'], $query);
 
             foreach (['file', 'p', 'f'] as $param) {
                 if (!empty($query[$param])) {
-                    $candidate = (string) $query[$param];
-
-                    // sicher decodieren (Contao 4 + 5)
-                    $candidate = html_entity_decode($candidate, ENT_QUOTES);
-                    $candidate = rawurldecode($candidate);
-
+                    $candidate = rawurldecode(html_entity_decode((string) $query[$param], ENT_QUOTES));
                     $ext = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
 
                     if (in_array($ext, ['pdf', 'docx', 'xlsx', 'pptx'], true)) {
