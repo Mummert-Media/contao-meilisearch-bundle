@@ -3,6 +3,7 @@
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
 use Contao\Config;
+use Contao\System;
 
 class IndexPageListener
 {
@@ -135,20 +136,12 @@ class IndexPageListener
                         'class' => $e::class,
                     ]);
                 }
-
-                $this->debug('Meta: final set snapshot', [
-                    'priority'  => $set['priority'] ?? null,
-                    'keywords'  => $set['keywords'] ?? null,
-                    'imagepath' => $set['imagepath'] ?? null,
-                    'startDate' => $set['startDate'] ?? null,
-                    'checksum'  => $set['checksum'] ?? null,
-                ]);
             }
         }
 
         /*
          * =====================
-         * DATEI-ERKENNUNG (PDF / OFFICE via Tika)
+         * DATEI-ERKENNUNG + UPSERT
          * =====================
          */
         if ((int) ($data['protected'] ?? 0) !== 0) {
@@ -184,24 +177,71 @@ class IndexPageListener
             'types' => array_count_values(array_column($fileLinks, 'type')),
         ]);
 
-        // ❗ ABSICHTLICH: hier passiert NOCH NICHTS
-        // Verarbeitung der Dateien folgt im nächsten Schritt
+        if ($fileLinks) {
+            $db   = System::getContainer()->get('database_connection');
+            $time = time();
+
+            foreach ($fileLinks as $file) {
+                $url = strtok($file['url'], '#');
+
+                $path = parse_url($url, PHP_URL_PATH);
+                $abs  = $path ? TL_ROOT . '/' . ltrim($path, '/') : null;
+
+                $mtime = ($abs && is_file($abs)) ? filemtime($abs) : 0;
+                $checksum = md5($url . '|' . $mtime);
+
+                $existing = $db->fetchAssociative(
+                    'SELECT id, checksum FROM tl_search_files WHERE url = ?',
+                    [$url]
+                );
+
+                if ($existing) {
+                    $db->update(
+                        'tl_search_files',
+                        [
+                            'tstamp'      => $time,
+                            'last_seen'   => $time,
+                            'page_id'     => (int) ($data['pid'] ?? 0),
+                            'file_mtime'  => $mtime,
+                            'checksum'    => $checksum,
+                        ],
+                        ['id' => $existing['id']]
+                    );
+
+                    $this->debug('File updated', [
+                        'url'      => $url,
+                        'checksum' => $checksum,
+                    ]);
+                } else {
+                    $db->insert(
+                        'tl_search_files',
+                        [
+                            'tstamp'     => $time,
+                            'last_seen'  => $time,
+                            'type'       => $file['type'],
+                            'url'        => $url,
+                            'title'      => $file['linkText'] ?? basename($url),
+                            'page_id'    => (int) ($data['pid'] ?? 0),
+                            'file_mtime' => $mtime,
+                            'checksum'   => $checksum,
+                        ]
+                    );
+
+                    $this->debug('File inserted', [
+                        'url'      => $url,
+                        'checksum' => $checksum,
+                    ]);
+                }
+            }
+        }
 
         $this->debug('Hook end', [
             'final_set_keys' => array_keys($set),
-            'final_set'      => [
-                'priority'  => $set['priority'] ?? null,
-                'keywords'  => $set['keywords'] ?? null,
-                'imagepath' => $set['imagepath'] ?? null,
-                'startDate' => $set['startDate'] ?? null,
-                'checksum'  => $set['checksum'] ?? null,
-            ],
         ]);
     }
 
-    /**
-     * Extrahiert MEILISEARCH_JSON aus HTML-Kommentar
-     */
+    /* === Hilfsmethoden unverändert === */
+
     private function extractMeilisearchJson(string $content): ?array
     {
         if (!preg_match('/<!--\s*MEILISEARCH_JSON\s*(\{.*?\})\s*-->/s', $content, $m)) {
@@ -216,9 +256,6 @@ class IndexPageListener
             : null;
     }
 
-    /**
-     * Sammle alle <a href="…"> Links
-     */
     private function findAllLinks(string $content): array
     {
         if (!preg_match_all(
@@ -241,9 +278,6 @@ class IndexPageListener
         return $result;
     }
 
-    /**
-     * Ermittelt indexierbaren Dateityp (pdf|docx|xlsx|pptx) oder null
-     */
     private function detectIndexableFileType(string $url): ?string
     {
         $url = strtok($url, '#');
