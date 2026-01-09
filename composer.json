@@ -8,11 +8,7 @@
     "contao/core-bundle": "^4.13 || ^5.6 || ^5.7",
     "contao/calendar-bundle": "^4.13 || ^5.6 || ^5.7",
     "contao/news-bundle": "^4.13 || ^5.6 || ^5.7",
-    "meilisearch/meilisearch-php": "^1.16",
-    "smalot/pdfparser": "^2.12",
-    "phpoffice/phpword": "^1.4",
-    "phpoffice/phpspreadsheet": "^3.0",
-    "phpoffice/phppresentation": "^1.2"
+    "meilisearch/meilisearch-php": "^1.16"
   },
   "autoload": {
     "psr-4": {
