@@ -16,6 +16,13 @@ class MeilisearchPageMarkerListener
             return $buffer;
         }
 
+        // ⛔ Marker bereits vorhanden → nichts mehr tun
+        if (str_contains($buffer, '⟦MEILISEARCH_META⟧')
+            || str_contains($buffer, 'MEILISEARCH_JSON')
+        ) {
+            return $buffer;
+        }
+
         $data = [];
 
         /*
