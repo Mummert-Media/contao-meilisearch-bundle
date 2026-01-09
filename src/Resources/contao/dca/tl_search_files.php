@@ -2,7 +2,7 @@
 
 use Contao\DC_Table;
 
-$GLOBALS['TL_DCA']['tl_search_files'] = [
+$GLOBALS['TL_DCA']['tl_search_pdf'] = [
     'config' => [
         'dataContainer' => DC_Table::class,
         'sql' => [

@@ -3,13 +3,15 @@
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
 use Contao\Config;
-use Contao\System;
+use MummertMedia\ContaoMeilisearchBundle\Service\PdfIndexService;
+use MummertMedia\ContaoMeilisearchBundle\Service\OfficeIndexService;
 
 class IndexPageListener
 {
-    public function __construct()
-    {
-    }
+    public function __construct(
+        private readonly PdfIndexService $pdfIndexService,
+        private readonly OfficeIndexService $officeIndexService,
+    ) {}
 
     private function debug(string $message, array $context = []): void
     {
@@ -101,6 +103,7 @@ class IndexPageListener
                 $this->debug('Meta: searchimage candidate', ['searchimage' => $searchImage]);
 
                 if (!empty($searchImage)) {
+                    // >>> HINWEIS: falls dein tl_search-Feld "image" heißt, hier auf $set['image'] ändern!
                     $set['imagepath'] = trim((string) $searchImage);
                 }
 
@@ -136,12 +139,20 @@ class IndexPageListener
                         'class' => $e::class,
                     ]);
                 }
+
+                $this->debug('Meta: final set snapshot', [
+                    'priority'  => $set['priority'] ?? null,
+                    'keywords'  => $set['keywords'] ?? null,
+                    'imagepath' => $set['imagepath'] ?? null,
+                    'startDate' => $set['startDate'] ?? null,
+                    'checksum'  => $set['checksum'] ?? null,
+                ]);
             }
         }
 
         /*
          * =====================
-         * DATEI-ERKENNUNG + UPSERT
+         * DATEI-INDEXIERUNG (PDF / OFFICE)
          * =====================
          */
         if ((int) ($data['protected'] ?? 0) !== 0) {
@@ -149,13 +160,15 @@ class IndexPageListener
             return;
         }
 
-        $indexFiles = (bool) Config::get('meilisearch_index_files');
+        $indexPdfs   = (bool) Config::get('meilisearch_index_pdfs');
+        $indexOffice = (bool) Config::get('meilisearch_index_office');
 
-        $this->debug('File indexing setting', [
-            'meilisearch_index_files' => $indexFiles,
+        $this->debug('File indexing settings', [
+            'meilisearch_index_pdfs'   => $indexPdfs,
+            'meilisearch_index_office' => $indexOffice,
         ]);
 
-        if (!$indexFiles) {
+        if (!$indexPdfs && !$indexOffice) {
             $this->debug('Abort: file indexing disabled');
             return;
         }
@@ -163,85 +176,61 @@ class IndexPageListener
         $links = $this->findAllLinks($content);
         $this->debug('Links found', ['count' => count($links)]);
 
-        $fileLinks = [];
+        $pdfLinks    = [];
+        $officeLinks = [];
 
         foreach ($links as $link) {
             $type = $this->detectIndexableFileType($link['url']);
-            if ($type !== null) {
-                $fileLinks[] = $link + ['type' => $type];
+
+            if ($type === 'pdf' && $indexPdfs) {
+                $pdfLinks[] = $link;
+                continue;
+            }
+
+            if (in_array($type, ['docx', 'xlsx', 'pptx'], true) && $indexOffice) {
+                $officeLinks[] = $link;
             }
         }
 
-        $this->debug('Indexable file links found', [
-            'count' => count($fileLinks),
-            'types' => array_count_values(array_column($fileLinks, 'type')),
+        $this->debug('Indexable file links', [
+            'pdf'    => count($pdfLinks),
+            'office' => count($officeLinks),
         ]);
 
-        if ($fileLinks) {
-            $db   = System::getContainer()->get('database_connection');
-            $time = time();
-
-            foreach ($fileLinks as $file) {
-                $url = strtok($file['url'], '#');
-
-                $path = parse_url($url, PHP_URL_PATH);
-                $abs  = $path ? TL_ROOT . '/' . ltrim($path, '/') : null;
-
-                $mtime = ($abs && is_file($abs)) ? filemtime($abs) : 0;
-                $checksum = md5($url . '|' . $mtime);
-
-                $existing = $db->fetchAssociative(
-                    'SELECT id, checksum FROM tl_search_files WHERE url = ?',
-                    [$url]
-                );
-
-                if ($existing) {
-                    $db->update(
-                        'tl_search_files',
-                        [
-                            'tstamp'      => $time,
-                            'last_seen'   => $time,
-                            'page_id'     => (int) ($data['pid'] ?? 0),
-                            'file_mtime'  => $mtime,
-                            'checksum'    => $checksum,
-                        ],
-                        ['id' => $existing['id']]
-                    );
-
-                    $this->debug('File updated', [
-                        'url'      => $url,
-                        'checksum' => $checksum,
-                    ]);
-                } else {
-                    $db->insert(
-                        'tl_search_files',
-                        [
-                            'tstamp'     => $time,
-                            'last_seen'  => $time,
-                            'type'       => $file['type'],
-                            'url'        => $url,
-                            'title'      => $file['linkText'] ?? basename($url),
-                            'page_id'    => (int) ($data['pid'] ?? 0),
-                            'file_mtime' => $mtime,
-                            'checksum'   => $checksum,
-                        ]
-                    );
-
-                    $this->debug('File inserted', [
-                        'url'      => $url,
-                        'checksum' => $checksum,
-                    ]);
-                }
+        try {
+            if ($pdfLinks !== []) {
+                $this->debug('PDF handlePdfLinks(): call', ['count' => count($pdfLinks)]);
+                $this->pdfIndexService->handlePdfLinks($pdfLinks);
+                $this->debug('PDF handlePdfLinks(): ok');
             }
+
+            if ($officeLinks !== []) {
+                $this->debug('Office handleOfficeLinks(): call', ['count' => count($officeLinks)]);
+                $this->officeIndexService->handleOfficeLinks($officeLinks);
+                $this->debug('Office handleOfficeLinks(): ok');
+            }
+        } catch (\Throwable $e) {
+            $this->debug('File indexing failed', [
+                'error' => $e->getMessage(),
+                'class' => $e::class,
+            ]);
         }
 
         $this->debug('Hook end', [
             'final_set_keys' => array_keys($set),
+            'final_set'      => [
+                'priority'  => $set['priority'] ?? null,
+                'keywords'  => $set['keywords'] ?? null,
+                'imagepath' => $set['imagepath'] ?? null,
+                'startDate' => $set['startDate'] ?? null,
+                'checksum'  => $set['checksum'] ?? null,
+            ],
         ]);
     }
 
-    /* === Hilfsmethoden unverändert === */
-
+    /**
+     * Extrahiert MEILISEARCH_JSON aus HTML-Kommentar
+     */
     private function extractMeilisearchJson(string $content): ?array
     {
         if (!preg_match('/<!--\s*MEILISEARCH_JSON\s*(\{.*?\})\s*-->/s', $content, $m)) {
@@ -256,6 +245,9 @@ class IndexPageListener
             : null;
     }
 
+    /**
+     * Sammle alle <a href="…"> Links
+     */
     private function findAllLinks(string $content): array
     {
         if (!preg_match_all(
@@ -278,8 +270,12 @@ class IndexPageListener
         return $result;
     }
 
+    /**
+     * Ermittelt indexierbaren Dateityp (pdf|docx|xlsx|pptx) oder null
+     */
     private function detectIndexableFileType(string $url): ?string
     {
+        // Hash entfernen
         $url = strtok($url, '#');
 
         $parts = parse_url($url);
@@ -287,6 +283,7 @@ class IndexPageListener
             return null;
         }
 
+        // direkter Pfad (/files/…)
         if (!empty($parts['path'])) {
             $ext = strtolower(pathinfo($parts['path'], PATHINFO_EXTENSION));
             if (in_array($ext, ['pdf', 'docx', 'xlsx', 'pptx'], true)) {
@@ -294,12 +291,18 @@ class IndexPageListener
             }
         }
 
+        // Query-Parameter (Contao 4 + 5)
         if (!empty($parts['query'])) {
             parse_str($parts['query'], $query);
 
             foreach (['file', 'p', 'f'] as $param) {
                 if (!empty($query[$param])) {
-                    $candidate = rawurldecode(html_entity_decode((string) $query[$param], ENT_QUOTES));
+                    $candidate = (string) $query[$param];
+
+                    // sicher decodieren (Contao 4 + 5)
+                    $candidate = html_entity_decode($candidate, ENT_QUOTES);
+                    $candidate = rawurldecode($candidate);
+
                     $ext = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
 
                     if (in_array($ext, ['pdf', 'docx', 'xlsx', 'pptx'], true)) {
