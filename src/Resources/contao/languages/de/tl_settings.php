@@ -28,10 +28,10 @@ $GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_past_events'][0]
 $GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_past_events'][1]
     = 'Vergangene Kalender-Events werden ebenfalls in Meilisearch indexiert.';
 
-$GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_pdfs'] = [
-    'PDFs indexieren',
-    'Aktiviert die Indexierung von PDF-Dateien für die Suche.',
+$GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_files'] = [
+    'Dateien indexieren',
+    'Aktiviert die Indexierung von PDF-Dateien sowie DOCX, XLSX und PPTX.',
 ];
 
-$GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_office']
-    = ['Office-Dateien indexieren', 'DOCX, XLSX und PPTX in die Suche aufnehmen.'];
+$GLOBALS['TL_LANG']['tl_settings']['meilisearch_tika_url']
+    = ['Apache Tika URL', 'URL der Apache Tika Instanz (z. B. https://tika.domain.tld).'];
