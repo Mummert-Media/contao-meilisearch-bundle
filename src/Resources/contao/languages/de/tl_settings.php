@@ -35,3 +35,7 @@ $GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_pdfs'] = [
 
 $GLOBALS['TL_LANG']['tl_settings']['meilisearch_index_office']
     = ['Office-Dateien indexieren', 'DOCX, XLSX und PPTX in die Suche aufnehmen.'];
+
+
+$GLOBALS['TL_LANG']['tl_settings']['meilisearch_tika_url']
+    = ['Apache Tika URL', 'URL der Apache Tika Instanz (z. B. https://tika.domain.tld).'];
