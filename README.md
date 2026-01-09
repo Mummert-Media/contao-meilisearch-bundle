@@ -2,6 +2,7 @@
 
 Eine schlanke Schnittstelle zwischen **Contao CMS (4.13 / 5.6 / 5.7 ready) unter PHP 8.4** und einer **selbst gehosteten Meilisearch-Instanz**.  
 Das Bundle erweitert den Contao-Suchindex um strukturierte Daten und ermöglicht eine performante, moderne Volltextsuche.
+Das Parsen von Dateien erfolgt über eine Apache-Tika-Instanz, welche extern bereitgestellt werden muss.
 
 ---
 
@@ -38,29 +39,27 @@ Das Bundle nutzt **keinen eigenen Contao-Cron**, sondern System-Cronjobs.
 /vendor/bin/contao-console meilisearch:files:cleanup
 ```
 
+### Datei-Parsing
+
+```
+/vendor/bin/contao-console meilisearch:files:parse
+```
+
 ### Meilisearch-Index
 
 ```
 /vendor/bin/contao-console meilisearch:index
 ```
 
-## Empfohlene Reihenfolge
 
-1. Datei-Cleanup  
-   `/vendor/bin/contao-console meilisearch:files:cleanup`
-
-2. Contao-Crawl (ca. 1 Minute später)  
-   `/vendor/bin/contao-console contao:crawl`
-
-3. Meilisearch-Index (ca. 15 Minuten später)  
-   `/vendor/bin/contao-console meilisearch:index`
 
 ## Beispiel Crontab
 
 ```
 0 5 * * *  /usr/bin/php8.4 /path/to/project/vendor/bin/contao-console meilisearch:files:cleanup
 1 5 * * *  /usr/bin/php8.4 /path/to/project/vendor/bin/contao-console contao:crawl
-15 5 * * * /usr/bin/php8.4 /path/to/project/vendor/bin/contao-console meilisearch:index
+10 5 * * * /usr/bin/php8.4 /path/to/project/vendor/bin/contao-console meilisearch:files:parse
+20 5 * * * /usr/bin/php8.4 /path/to/project/vendor/bin/contao-console meilisearch:index
 ```
 
 ## Logging
