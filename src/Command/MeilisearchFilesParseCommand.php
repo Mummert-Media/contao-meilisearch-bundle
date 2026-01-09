@@ -55,14 +55,12 @@ class MeilisearchFilesParseCommand extends Command
 
         $db = Database::getInstance();
 
-        $limit = (int) $limit;
-
         $files = $db
             ->query(
                 "SELECT *
-         FROM tl_search_files
-         ORDER BY tstamp ASC
-         LIMIT " . $limit
+                 FROM tl_search_files
+                 ORDER BY tstamp ASC
+                 LIMIT " . (int) $limit
             )
             ->fetchAllAssoc();
 
@@ -77,27 +75,75 @@ class MeilisearchFilesParseCommand extends Command
 
         foreach ($files as $file) {
 
-            $absolutePath = TL_ROOT . '/' . ltrim($file['url'], '/');
+            $originalUrl = (string) $file['url'];
+            $normalized  = $originalUrl;
+
+            // -------------------------------------------------
+            // 1) Query-URL behandeln (?file=files/...)
+            // -------------------------------------------------
+            if (str_contains($normalized, '?')) {
+                $parts = parse_url($normalized);
+                if (!empty($parts['query'])) {
+                    parse_str($parts['query'], $query);
+                    if (!empty($query['file'])) {
+                        $normalized = (string) $query['file'];
+                    } else {
+                        $this->log('Not a direct file url, skip', ['url' => $originalUrl]);
+                        continue;
+                    }
+                }
+            }
+
+            // -------------------------------------------------
+            // 2) Fragment entfernen (#...)
+            // -------------------------------------------------
+            $normalized = strtok($normalized, '#');
+
+            // -------------------------------------------------
+            // 3) URL-Decoding (Umlaute, Leerzeichen)
+            // -------------------------------------------------
+            $normalized = rawurldecode($normalized);
+
+            // -------------------------------------------------
+            // 4) Nur lokale files/… zulassen
+            // -------------------------------------------------
+            $normalized = ltrim($normalized, '/');
+            if (!str_starts_with($normalized, 'files/')) {
+                $this->log('Not in files/, skip', ['url' => $originalUrl]);
+                continue;
+            }
+
+            $absolutePath = TL_ROOT . '/' . $normalized;
+
             if (!is_file($absolutePath)) {
-                $this->log('File missing, skip', ['url' => $file['url']]);
+                $this->log('File missing, skip', [
+                    'url'  => $originalUrl,
+                    'path' => $absolutePath,
+                ]);
                 continue;
             }
 
             $mtime    = filemtime($absolutePath) ?: 0;
-            $checksum = md5($file['url'] . '|' . $mtime);
+            $checksum = md5($normalized . '|' . $mtime);
 
+            // -------------------------------------------------
+            // 5) Unveränderte Dateien überspringen
+            // -------------------------------------------------
             if ($file['checksum'] === $checksum && !empty($file['text'])) {
-                $this->log('Skip unchanged file', ['url' => $file['url']]);
+                $this->log('Skip unchanged file', ['url' => $normalized]);
                 continue;
             }
 
             if ($dryRun) {
-                $output->writeln('[DRY-RUN] Would parse: ' . $file['url']);
+                $output->writeln('[DRY-RUN] Would parse: ' . $normalized);
                 continue;
             }
 
+            // -------------------------------------------------
+            // 6) Tika-Parsing
+            // -------------------------------------------------
             try {
-                $this->log('Parsing file', ['url' => $file['url']]);
+                $this->log('Parsing file', ['url' => $normalized]);
 
                 $response = $client->request(
                     'PUT',
@@ -125,13 +171,13 @@ class MeilisearchFilesParseCommand extends Command
                 );
 
                 $this->log('File parsed', [
-                    'url'      => $file['url'],
-                    'chars'    => strlen($text),
+                    'url'   => $normalized,
+                    'chars' => strlen($text),
                 ]);
 
             } catch (\Throwable $e) {
                 $this->log('Parse failed', [
-                    'url'   => $file['url'],
+                    'url'   => $normalized,
                     'error' => $e->getMessage(),
                 ]);
             }
@@ -141,6 +187,9 @@ class MeilisearchFilesParseCommand extends Command
         return Command::SUCCESS;
     }
 
+    /**
+     * Einheitliches Logging
+     */
     private function log(string $message, array $context = []): void
     {
         $ctx = $context
