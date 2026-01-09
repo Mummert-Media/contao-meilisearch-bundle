@@ -3,7 +3,7 @@
 namespace MummertMedia\ContaoMeilisearchBundle\Command;
 
 use Contao\CoreBundle\Framework\ContaoFramework;
-use Contao\Database;
+use Doctrine\DBAL\Connection;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -13,6 +13,7 @@ class MeilisearchFilesCleanupCommand extends Command
 {
     public function __construct(
         private readonly ContaoFramework $framework,
+        private readonly Connection $connection,
     ) {
         parent::__construct();
     }
@@ -21,13 +22,13 @@ class MeilisearchFilesCleanupCommand extends Command
     {
         $this
             ->setName('meilisearch:files:cleanup')
-            ->setDescription('Remove stale indexed files (PDF, DOCX, XLSX, PPTX) from tl_search_pdf')
+            ->setDescription('Remove stale indexed files from tl_search_files')
             ->addOption(
                 'grace',
                 null,
                 InputOption::VALUE_OPTIONAL,
                 'Grace period in seconds (files newer than now-grace are kept)',
-                86400 // 24 Stunden
+                86400
             )
             ->addOption(
                 'dry-run',
@@ -49,10 +50,10 @@ class MeilisearchFilesCleanupCommand extends Command
             $cutoff = time() - $grace;
 
             if ($dryRun) {
-                $count = Database::getInstance()
-                    ->prepare('SELECT COUNT(*) AS cnt FROM tl_search_pdf WHERE last_seen < ?')
-                    ->execute($cutoff)
-                    ->cnt;
+                $count = $this->connection->fetchOne(
+                    'SELECT COUNT(*) FROM tl_search_files WHERE last_seen < ?',
+                    [$cutoff]
+                );
 
                 $message = sprintf(
                     '[DRY-RUN] %d stale file(s) would be removed (last_seen < %s)',
@@ -63,14 +64,14 @@ class MeilisearchFilesCleanupCommand extends Command
                 $output->writeln('<comment>' . $message . '</comment>');
                 $this->log($message);
 
-                $this->log('Cleaner successfully stopped');
+                $this->log('Cleaner stopped (dry-run)');
                 return Command::SUCCESS;
             }
 
-            $affected = Database::getInstance()
-                ->prepare('DELETE FROM tl_search_pdf WHERE last_seen < ?')
-                ->execute($cutoff)
-                ->affectedRows;
+            $affected = $this->connection->executeStatement(
+                'DELETE FROM tl_search_files WHERE last_seen < ?',
+                [$cutoff]
+            );
 
             $message = sprintf(
                 'Removed %d stale file(s) (last_seen < %s)',
@@ -92,15 +93,8 @@ class MeilisearchFilesCleanupCommand extends Command
         }
     }
 
-    /**
-     * Einheitliches Logging mit Zeitstempel
-     */
     private function log(string $message): void
     {
-        error_log(sprintf(
-            '[%s] %s',
-            date('Y-m-d H:i:s'),
-            $message
-        ));
+        error_log(sprintf('[%s] %s', date('Y-m-d H:i:s'), $message));
     }
 }
