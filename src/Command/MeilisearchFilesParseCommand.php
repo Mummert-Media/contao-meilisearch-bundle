@@ -55,13 +55,15 @@ class MeilisearchFilesParseCommand extends Command
 
         $db = Database::getInstance();
 
+        $limit = (int) $limit;
+
         $files = $db
-            ->prepare(
-                "SELECT * FROM tl_search_files
-                 ORDER BY tstamp ASC
-                 LIMIT ?"
+            ->query(
+                "SELECT *
+         FROM tl_search_files
+         ORDER BY tstamp ASC
+         LIMIT " . $limit
             )
-            ->execute($limit)
             ->fetchAllAssoc();
 
         if (!$files) {
