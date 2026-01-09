@@ -3,55 +3,52 @@
 namespace MummertMedia\ContaoMeilisearchBundle\Cron;
 
 use Contao\CoreBundle\Framework\ContaoFramework;
-use MummertMedia\ContaoMeilisearchBundle\Service\MeilisearchIndexService;
 use Symfony\Component\Process\Process;
 
 class MeilisearchIndexCron
 {
+    private string $logFile;
+
     public function __construct(
-        private readonly MeilisearchIndexService $indexService,
         private readonly ContaoFramework $framework,
         private readonly string $projectDir,
-    ) {}
+    ) {
+        $this->logFile = $this->projectDir . '/var/logs/meilisearch_bundle.log';
+    }
 
     public function __invoke(): void
     {
-        $start = microtime(true);
-
-        error_log('[MeilisearchCron] === START ===');
-
-        // Contao initialisieren
         $this->framework->initialize();
-        error_log('[MeilisearchCron] Contao framework initialized');
 
-        // 1) Contao Crawl
-        $this->runConsole(
-            'contao:crawl',
-            'Contao crawl'
+        $this->log('=== CRON START ===');
+
+        // 1) Cleanup
+        $this->runStep(
+            'meilisearch:files:cleanup',
+            'meilisearch:files:cleanup'
         );
 
-        // 2) Cleanup (24h Grace)
-        $this->runConsole(
-            'meilisearch:files:cleanup',
-            'Meilisearch files cleanup'
+        // 2) Contao Crawl
+        $this->runStep(
+            'contao:crawl',
+            'contao:crawl'
         );
 
         // 3) Meilisearch Index
-        try {
-            error_log('[MeilisearchCron] Meilisearch index started');
-            $this->indexService->run();
-            error_log('[MeilisearchCron] Meilisearch index finished');
-        } catch (\Throwable $e) {
-            error_log('[MeilisearchCron] ERROR during Meilisearch index: ' . $e->getMessage());
-        }
+        $this->runStep(
+            'meilisearch:index',
+            'meilisearch:index'
+        );
 
-        $duration = round(microtime(true) - $start, 2);
-        error_log('[MeilisearchCron] === END (duration: ' . $duration . 's) ===');
+        $this->log('=== CRON END ===');
     }
 
-    private function runConsole(string $command, string $label): void
+    /**
+     * Führt einen Console-Command aus und loggt sauber Start/Ende
+     */
+    private function runStep(string $command, string $label): void
     {
-        error_log('[MeilisearchCron] ' . $label . ' started');
+        $this->log($label . ' gestartet');
 
         $process = new Process([
             PHP_BINARY,
@@ -63,16 +60,30 @@ class MeilisearchIndexCron
         $process->run();
 
         if (!$process->isSuccessful()) {
-            error_log(
-                '[MeilisearchCron] ERROR in ' . $label . ': ' .
-                $process->getErrorOutput()
+            $this->log(
+                $label . ' FEHLGESCHLAGEN',
+                $process->getErrorOutput() ?: 'Unbekannter Fehler'
             );
-        } else {
-            $output = trim($process->getOutput());
-            if ($output !== '') {
-                error_log('[MeilisearchCron] ' . $label . ' output: ' . $output);
-            }
-            error_log('[MeilisearchCron] ' . $label . ' finished');
+
+            // ❌ Abbruch – Folgeschritte NICHT ausführen
+            return;
         }
+
+        $this->log($label . ' erfolgreich beendet');
+    }
+
+    /**
+     * Schreibt eine Logzeile mit Zeitstempel
+     */
+    private function log(string $message, string $details = ''): void
+    {
+        $line = sprintf(
+            "[%s] %s%s\n",
+            date('Y-m-d H:i:s'),
+            $message,
+            $details ? ' | ' . trim($details) : ''
+        );
+
+        file_put_contents($this->logFile, $line, FILE_APPEND);
     }
 }
