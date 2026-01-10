@@ -22,18 +22,18 @@ class MeilisearchFilesParseCommand extends Command
     {
         $this
             ->setName('meilisearch:files:parse')
-            ->setDescription('Parse indexed files via Apache Tika and store extracted text')
+            ->setDescription('Parse indexed files via Apache Tika and enrich tl_search_files')
             ->addOption(
                 'limit',
                 null,
                 InputOption::VALUE_OPTIONAL,
-                'Maximum number of files to check per run (optional)'
+                'Maximum number of files to check per run'
             )
             ->addOption(
                 'dry-run',
                 null,
                 InputOption::VALUE_NONE,
-                'Do not send files to Tika, just show what would be parsed'
+                'Do not send files to Tika'
             );
     }
 
@@ -44,11 +44,9 @@ class MeilisearchFilesParseCommand extends Command
 
         $dryRun = (bool) $input->getOption('dry-run');
 
-        // ---- LIMIT: nur wenn explizit gesetzt
         $limitOption = $input->getOption('limit');
         $limit = $limitOption !== null ? max(1, (int) $limitOption) : null;
 
-        // ---- Tika URL
         $tikaUrl = rtrim((string) ($GLOBALS['TL_CONFIG']['meilisearch_tika_url'] ?? ''), '/');
         if ($tikaUrl === '') {
             $output->writeln('<error>Tika URL not configured</error>');
@@ -57,7 +55,6 @@ class MeilisearchFilesParseCommand extends Command
 
         $db = Database::getInstance();
 
-        // ---- Files laden
         $sql = "SELECT * FROM tl_search_files ORDER BY tstamp ASC";
         if ($limit !== null) {
             $sql .= " LIMIT " . (int) $limit;
@@ -80,7 +77,7 @@ class MeilisearchFilesParseCommand extends Command
             $normalized  = $originalUrl;
 
             // -------------------------------------------------
-            // 1) ?file=files/…
+            // Normalize URL → files/…
             // -------------------------------------------------
             if (str_contains($normalized, '?')) {
                 $parts = parse_url($normalized);
@@ -95,20 +92,10 @@ class MeilisearchFilesParseCommand extends Command
                 }
             }
 
-            // -------------------------------------------------
-            // 2) Fragment entfernen
-            // -------------------------------------------------
             $normalized = strtok($normalized, '#');
-
-            // -------------------------------------------------
-            // 3) URL-Decoding
-            // -------------------------------------------------
             $normalized = rawurldecode($normalized);
-
-            // -------------------------------------------------
-            // 4) Nur lokale files/
-            // -------------------------------------------------
             $normalized = ltrim($normalized, '/');
+
             if (!str_starts_with($normalized, 'files/')) {
                 $this->log('Not in files/, skip', ['url' => $originalUrl]);
                 continue;
@@ -128,7 +115,7 @@ class MeilisearchFilesParseCommand extends Command
             $checksum = md5($normalized . '|' . $mtime);
 
             // -------------------------------------------------
-            // 5) Skip unchanged
+            // Skip unchanged
             // -------------------------------------------------
             if ($file['checksum'] === $checksum && !empty($file['text'])) {
                 continue;
@@ -140,7 +127,7 @@ class MeilisearchFilesParseCommand extends Command
             }
 
             // -------------------------------------------------
-            // 6) MIME-Type
+            // MIME-Type
             // -------------------------------------------------
             $ext = strtolower(pathinfo($normalized, PATHINFO_EXTENSION));
 
@@ -158,12 +145,12 @@ class MeilisearchFilesParseCommand extends Command
             }
 
             // -------------------------------------------------
-            // 7) Tika parse
+            // Tika BODY
             // -------------------------------------------------
             try {
                 $this->log('Parsing file', ['url' => $normalized]);
 
-                $response = $client->request(
+                $bodyResponse = $client->request(
                     'PUT',
                     $tikaUrl . '/tika/main',
                     [
@@ -175,31 +162,76 @@ class MeilisearchFilesParseCommand extends Command
                     ]
                 );
 
-                $text = trim((string) $response->getContent(false));
-
-                $db->prepare(
-                    "UPDATE tl_search_files
-                     SET text = ?, checksum = ?, file_mtime = ?, tstamp = ?
-                     WHERE id = ?"
-                )->execute(
-                    $text,
-                    $checksum,
-                    $mtime,
-                    time(),
-                    $file['id']
-                );
-
-                $this->log('File parsed', [
-                    'url'   => $normalized,
-                    'chars' => mb_strlen($text),
-                ]);
+                $text = trim((string) $bodyResponse->getContent(false));
 
             } catch (\Throwable $e) {
-                $this->log('Parse failed', [
+                $this->log('Body parse failed', [
                     'url'   => $normalized,
                     'error' => $e->getMessage(),
                 ]);
+                continue;
             }
+
+            // -------------------------------------------------
+            // Tika METADATA (Titel)
+            // -------------------------------------------------
+            $title = null;
+
+            try {
+                $metaResponse = $client->request(
+                    'PUT',
+                    $tikaUrl . '/meta',
+                    [
+                        'headers' => [
+                            'Accept'       => 'application/json',
+                            'Content-Type' => $mimeType,
+                        ],
+                        'body' => fopen($absolutePath, 'rb'),
+                    ]
+                );
+
+                $meta = json_decode($metaResponse->getContent(false), true);
+
+                $rawTitle =
+                    $meta['dc:title'][0]
+                    ?? $meta['pdf:docinfo:title'][0]
+                    ?? null;
+
+                if ($rawTitle) {
+                    $title = trim(
+                        html_entity_decode(
+                            $rawTitle,
+                            ENT_QUOTES | ENT_HTML5,
+                            'UTF-8'
+                        )
+                    );
+                }
+
+            } catch (\Throwable) {
+                // Titel ist optional
+            }
+
+            // -------------------------------------------------
+            // Store result
+            // -------------------------------------------------
+            $db->prepare(
+                "UPDATE tl_search_files
+                 SET text = ?, title = ?, checksum = ?, file_mtime = ?, tstamp = ?
+                 WHERE id = ?"
+            )->execute(
+                $text,
+                $title,
+                $checksum,
+                $mtime,
+                time(),
+                $file['id']
+            );
+
+            $this->log('File parsed', [
+                'url'   => $normalized,
+                'chars' => mb_strlen($text),
+                'title' => $title,
+            ]);
         }
 
         $this->log('Parser finished');
