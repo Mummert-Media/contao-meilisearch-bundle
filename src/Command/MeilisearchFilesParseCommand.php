@@ -55,8 +55,6 @@ class MeilisearchFilesParseCommand extends Command
 
         $db = Database::getInstance();
 
-        $db->query("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
-
         $sql = "SELECT * FROM tl_search_files ORDER BY tstamp ASC";
         if ($limit !== null) {
             $sql .= " LIMIT " . (int) $limit;
@@ -200,12 +198,10 @@ class MeilisearchFilesParseCommand extends Command
                     ?? null;
 
                 if ($rawTitle) {
-                    $title = trim(
-                        html_entity_decode(
-                            $rawTitle,
-                            ENT_QUOTES | ENT_HTML5,
-                            'UTF-8'
-                        )
+                    $title = html_entity_decode(
+                        $rawTitle,
+                        ENT_QUOTES | ENT_HTML5,
+                        'UTF-8'
                     );
                 }
 
@@ -214,14 +210,19 @@ class MeilisearchFilesParseCommand extends Command
             }
 
             // -------------------------------------------------
-            // TITLE FALLBACK (REQUIRED)
+            // TITLE FALLBACK
             // -------------------------------------------------
             if (!$title) {
                 $title = pathinfo($normalized, PATHINFO_FILENAME);
                 $title = str_replace(['_', '-'], ' ', $title);
-                $title = preg_replace('/\s+/u', ' ', $title);
-                $title = trim($title);
             }
+
+            // -------------------------------------------------
+            // 🔑 CRITICAL FIX: remove invalid UTF-8 bytes
+            // -------------------------------------------------
+            $title = iconv('UTF-8', 'UTF-8//IGNORE', $title);
+            $title = preg_replace('/\s+/u', ' ', $title);
+            $title = trim($title);
 
             // -------------------------------------------------
             // Store result
