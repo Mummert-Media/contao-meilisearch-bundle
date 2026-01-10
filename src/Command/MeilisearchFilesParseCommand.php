@@ -77,7 +77,7 @@ class MeilisearchFilesParseCommand extends Command
             $normalized  = $originalUrl;
 
             // -------------------------------------------------
-            // Normalize URL → files/…
+            // Normalize URL
             // -------------------------------------------------
             if (str_contains($normalized, '?')) {
                 $parts = parse_url($normalized);
@@ -173,7 +173,7 @@ class MeilisearchFilesParseCommand extends Command
             }
 
             // -------------------------------------------------
-            // Tika METADATA (Titel)
+            // Tika METADATA (Title)
             // -------------------------------------------------
             $title = null;
 
@@ -208,7 +208,17 @@ class MeilisearchFilesParseCommand extends Command
                 }
 
             } catch (\Throwable) {
-                // Titel ist optional
+                // Metadata optional
+            }
+
+            // -------------------------------------------------
+            // TITLE FALLBACK (REQUIRED)
+            // -------------------------------------------------
+            if (!$title) {
+                $title = pathinfo($normalized, PATHINFO_FILENAME);
+                $title = str_replace(['_', '-'], ' ', $title);
+                $title = preg_replace('/\s+/u', ' ', $title);
+                $title = trim($title);
             }
 
             // -------------------------------------------------
