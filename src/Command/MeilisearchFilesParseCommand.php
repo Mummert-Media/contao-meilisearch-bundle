@@ -55,6 +55,8 @@ class MeilisearchFilesParseCommand extends Command
 
         $db = Database::getInstance();
 
+        $db->query("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
+
         $sql = "SELECT * FROM tl_search_files ORDER BY tstamp ASC";
         if ($limit !== null) {
             $sql .= " LIMIT " . (int) $limit;
