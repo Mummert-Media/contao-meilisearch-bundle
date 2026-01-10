@@ -145,7 +145,7 @@ class MeilisearchFilesParseCommand extends Command
             }
 
             // -------------------------------------------------
-            // Tika BODY
+            // Tika BODY (roher Plaintext)
             // -------------------------------------------------
             try {
                 $this->log('Parsing file', ['url' => $normalized]);
@@ -210,19 +210,26 @@ class MeilisearchFilesParseCommand extends Command
             }
 
             // -------------------------------------------------
-            // TITLE FALLBACK
+            // TITLE → ASCII SAFE (DELIBERATE DATA LOSS)
             // -------------------------------------------------
-            if (!$title) {
-                $title = pathinfo($normalized, PATHINFO_FILENAME);
-                $title = str_replace(['_', '-'], ' ', $title);
+            if ($title) {
+                // UTF-8 → ASCII, Unbekanntes verwerfen
+                $title = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $title);
+
+                // Normalisieren
+                $title = preg_replace('/\s+/', ' ', $title);
+                $title = trim($title);
             }
 
             // -------------------------------------------------
-            // 🔑 CRITICAL FIX: remove invalid UTF-8 bytes
+            // FALLBACK: Dateiname
             // -------------------------------------------------
-            $title = iconv('UTF-8', 'UTF-8//IGNORE', $title);
-            $title = preg_replace('/\s+/u', ' ', $title);
-            $title = trim($title);
+            if (!$title || strlen($title) < 5) {
+                $title = pathinfo($normalized, PATHINFO_FILENAME);
+                $title = str_replace(['_', '-'], ' ', $title);
+                $title = preg_replace('/\s+/', ' ', $title);
+                $title = trim($title);
+            }
 
             // -------------------------------------------------
             // Store result
