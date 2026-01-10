@@ -73,8 +73,9 @@ class MeilisearchFilesParseCommand extends Command
 
         foreach ($files as $file) {
 
-            $originalUrl = (string) $file['url'];
-            $normalized  = $originalUrl;
+            $originalUrl   = (string) $file['url'];
+            $existingTitle = trim((string) ($file['title'] ?? ''));
+            $normalized    = $originalUrl;
 
             // -------------------------------------------------
             // Normalize URL
@@ -173,56 +174,58 @@ class MeilisearchFilesParseCommand extends Command
             }
 
             // -------------------------------------------------
-            // Tika METADATA (Title)
+            // TITLE: keep existing editor-defined title
             // -------------------------------------------------
-            $title = null;
+            $title = $existingTitle !== '' ? $existingTitle : null;
 
-            try {
-                $metaResponse = $client->request(
-                    'PUT',
-                    $tikaUrl . '/meta',
-                    [
-                        'headers' => [
-                            'Accept'       => 'application/json',
-                            'Content-Type' => $mimeType,
-                        ],
-                        'body' => fopen($absolutePath, 'rb'),
-                    ]
-                );
-
-                $meta = json_decode($metaResponse->getContent(false), true);
-
-                $rawTitle =
-                    $meta['dc:title'][0]
-                    ?? $meta['pdf:docinfo:title'][0]
-                    ?? null;
-
-                if ($rawTitle) {
-                    $title = html_entity_decode(
-                        $rawTitle,
-                        ENT_QUOTES | ENT_HTML5,
-                        'UTF-8'
+            // -------------------------------------------------
+            // Tika METADATA (Title) – only if no existing title
+            // -------------------------------------------------
+            if ($title === null) {
+                try {
+                    $metaResponse = $client->request(
+                        'PUT',
+                        $tikaUrl . '/meta',
+                        [
+                            'headers' => [
+                                'Accept'       => 'application/json',
+                                'Content-Type' => $mimeType,
+                            ],
+                            'body' => fopen($absolutePath, 'rb'),
+                        ]
                     );
-                }
 
-            } catch (\Throwable) {
-                // Metadata optional
+                    $meta = json_decode($metaResponse->getContent(false), true);
+
+                    $rawTitle =
+                        $meta['dc:title'][0]
+                        ?? $meta['pdf:docinfo:title'][0]
+                        ?? null;
+
+                    if ($rawTitle) {
+                        $title = html_entity_decode(
+                            $rawTitle,
+                            ENT_QUOTES | ENT_HTML5,
+                            'UTF-8'
+                        );
+                    }
+
+                } catch (\Throwable) {
+                    // Metadata optional
+                }
             }
 
             // -------------------------------------------------
-            // TITLE → ASCII SAFE (DELIBERATE DATA LOSS)
+            // TITLE → ASCII SAFE (only if newly generated)
             // -------------------------------------------------
-            if ($title) {
-                // UTF-8 → ASCII, Unbekanntes verwerfen
+            if ($existingTitle === '' && $title) {
                 $title = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $title);
-
-                // Normalisieren
                 $title = preg_replace('/\s+/', ' ', $title);
                 $title = trim($title);
             }
 
             // -------------------------------------------------
-            // FALLBACK: Dateiname
+            // FALLBACK: Dateiname (only if still empty)
             // -------------------------------------------------
             if (!$title || strlen($title) < 5) {
                 $title = pathinfo($normalized, PATHINFO_FILENAME);
