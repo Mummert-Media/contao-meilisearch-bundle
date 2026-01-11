@@ -7,14 +7,6 @@ use Doctrine\DBAL\Connection;
 
 class IndexPageListener
 {
-    private static bool $shutdownRegistered = false;
-
-    /**
-     * Letzter Debug-Stand, damit wir bei Fatal Errors (Timeout, Memory etc.)
-     * per Shutdown-Handler sehen, wo er gestorben ist.
-     */
-    private static array $lastState = [];
-
     public function __construct(
         private readonly Connection $connection,
     ) {
@@ -22,60 +14,17 @@ class IndexPageListener
 
     private function debug(string $message, array $context = []): void
     {
-        $ctx = $context ? ' | ' . json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '';
+        $ctx = $context
+            ? ' | ' . json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+            : '';
+
         error_log('[ContaoMeilisearch][IndexPageListener] ' . $message . $ctx);
-    }
-
-    private function registerShutdownOnce(): void
-    {
-        if (self::$shutdownRegistered) {
-            return;
-        }
-
-        self::$shutdownRegistered = true;
-
-        register_shutdown_function(function (): void {
-            $err = error_get_last();
-
-            // Nur loggen, wenn wirklich ein letzter Fehler vorhanden ist
-            if (!$err) {
-                return;
-            }
-
-            error_log('[ContaoMeilisearch][IndexPageListener] SHUTDOWN last_error | '
-                . json_encode([
-                    'type'    => $err['type'] ?? null,
-                    'message' => $err['message'] ?? null,
-                    'file'    => $err['file'] ?? null,
-                    'line'    => $err['line'] ?? null,
-                    'state'   => self::$lastState,
-                ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
-            );
-        });
-    }
-
-    private function setLastState(string $stage, array $context = []): void
-    {
-        self::$lastState = [
-            'stage'   => $stage,
-            'context' => $context,
-            'ts'      => time(),
-        ];
     }
 
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
-        $this->registerShutdownOnce();
-
-        $this->setLastState('Hook start', [
-            'page_url' => $data['url'] ?? null,
-        ]);
-
         $this->debug('Hook start', [
-            'url'       => $data['url'] ?? null,
-            'protected' => $data['protected'] ?? null,
-            'checksum'  => $data['checksum'] ?? null,
-            'set_keys'  => array_keys($set),
+            'url' => $data['url'] ?? null,
         ]);
 
         /*
@@ -83,151 +32,40 @@ class IndexPageListener
          * SEITEN-METADATEN
          * =====================
          */
-        $hasMeta = str_contains($content, 'MEILISEARCH_JSON');
-
-        $this->setLastState('Meta marker scan', [
-            'contains_MEILISEARCH_JSON' => $hasMeta,
-        ]);
-
-        $this->debug('Meta marker scan', [
-            'contains_MEILISEARCH_JSON' => $hasMeta,
-            'content_length'            => strlen($content),
-        ]);
-
-        if ($hasMeta) {
-            try {
-                $parsed = $this->extractMeilisearchJson($content);
-
-                $this->setLastState('extractMeilisearchJson done', [
-                    'parsed_is_array' => is_array($parsed),
-                ]);
-
-                $this->debug('extractMeilisearchJson(): done', [
-                    'parsed_is_array' => is_array($parsed),
-                    'parsed_keys'     => is_array($parsed) ? array_keys($parsed) : null,
-                ]);
-            } catch (\Throwable $e) {
-                $this->debug('Failed to extract MEILISEARCH_JSON', [
-                    'error' => $e->getMessage(),
-                    'class' => $e::class,
-                ]);
-                $parsed = null;
-            }
+        if (str_contains($content, 'MEILISEARCH_JSON')) {
+            $parsed = $this->extractMeilisearchJson($content);
 
             if (is_array($parsed)) {
-
-                // PRIORITY
-                $priority =
-                    $parsed['event']['priority']
-                    ?? $parsed['news']['priority']
-                    ?? $parsed['page']['priority']
-                    ?? null;
-
-                $this->debug('Meta: priority candidate', ['priority' => $priority]);
-
-                if ($priority !== null && $priority !== '') {
-                    $set['priority'] = (int) $priority;
+                if (isset($parsed['page']['priority'])) {
+                    $set['priority'] = (int) $parsed['page']['priority'];
                 }
 
-                // KEYWORDS
-                $keywordSources = [
-                    $parsed['event']['keywords'] ?? null,
-                    $parsed['news']['keywords']  ?? null,
-                    $parsed['page']['keywords']  ?? null,
-                ];
-
-                $this->debug('Meta: keyword sources', ['sources' => $keywordSources]);
-
-                $keywords = [];
-                foreach ($keywordSources as $src) {
-                    if (!is_string($src) || trim($src) === '') {
-                        continue;
-                    }
-                    foreach (preg_split('/\s+/', trim($src)) as $word) {
-                        $keywords[] = $word;
-                    }
+                if (!empty($parsed['page']['searchimage'])) {
+                    $set['imagepath'] = (string) $parsed['page']['searchimage'];
                 }
 
-                if ($keywords) {
-                    $set['keywords'] = implode(' ', array_unique($keywords));
-                }
+                $checksumSeed  = (string) ($data['checksum'] ?? '');
+                $checksumSeed .= '|' . ($set['priority']  ?? '');
+                $checksumSeed .= '|' . ($set['imagepath'] ?? '');
 
-                $this->debug('Meta: keywords result', [
-                    'keywords' => $set['keywords'] ?? null,
-                ]);
-
-                // IMAGEPATH (UUID)
-                $searchImage = $parsed['page']['searchimage'] ?? null;
-                $this->debug('Meta: searchimage candidate', ['searchimage' => $searchImage]);
-
-                if (!empty($searchImage)) {
-                    $set['imagepath'] = trim((string) $searchImage);
-                }
-
-                // STARTDATE
-                $startDate =
-                    $parsed['event']['startDate']
-                    ?? $parsed['news']['startDate']
-                    ?? null;
-
-                $this->debug('Meta: startDate candidate', ['startDate' => $startDate]);
-
-                if (is_numeric($startDate) && (int) $startDate > 0) {
-                    $set['startDate'] = (int) $startDate;
-                }
-
-                // CHECKSUM
-                try {
-                    $checksumSeed  = (string) ($data['checksum'] ?? '');
-                    $checksumSeed .= '|' . ($set['keywords']  ?? '');
-                    $checksumSeed .= '|' . ($set['priority']  ?? '');
-                    $checksumSeed .= '|' . ($set['imagepath'] ?? '');
-                    $checksumSeed .= '|' . ($set['startDate'] ?? '');
-
-                    $set['checksum'] = md5($checksumSeed);
-
-                    $this->debug('Checksum generated', [
-                        'seed_preview' => substr($checksumSeed, 0, 120) . (strlen($checksumSeed) > 120 ? '…' : ''),
-                        'checksum'     => $set['checksum'],
-                    ]);
-                } catch (\Throwable $e) {
-                    $this->debug('Failed to generate checksum', [
-                        'error' => $e->getMessage(),
-                        'class' => $e::class,
-                    ]);
-                }
+                $set['checksum'] = md5($checksumSeed);
             }
         }
 
         /*
          * =====================
-         * DATEI-ERKENNUNG + UPSERT
+         * DATEI-ERKENNUNG
          * =====================
          */
         if ((int) ($data['protected'] ?? 0) !== 0) {
-            $this->debug('Abort: protected page', ['protected' => $data['protected'] ?? null]);
             return;
         }
 
-        $indexFiles = (bool) Config::get('meilisearch_index_files');
-
-        $this->debug('File indexing setting', [
-            'meilisearch_index_files' => $indexFiles,
-        ]);
-
-        if (!$indexFiles) {
-            $this->debug('Abort: file indexing disabled');
+        if (!Config::get('meilisearch_index_files')) {
             return;
         }
 
         $links = $this->findAllLinks($content);
-
-        $this->setLastState('Links found', [
-            'count' => count($links),
-        ]);
-
-        $this->debug('Links found', ['count' => count($links)]);
-
         $fileLinks = [];
 
         foreach ($links as $link) {
@@ -237,120 +75,90 @@ class IndexPageListener
             }
         }
 
-        $this->setLastState('Indexable file links found', [
-            'count' => count($fileLinks),
-            'types' => array_count_values(array_column($fileLinks, 'type')),
-        ]);
+        if (!$fileLinks) {
+            return;
+        }
 
-        $this->debug('Indexable file links found', [
-            'count' => count($fileLinks),
-            'types' => array_count_values(array_column($fileLinks, 'type')),
-        ]);
+        $db   = $this->connection;
+        $time = time();
 
-        if ($fileLinks) {
-            $this->debug('About to use Doctrine DBAL connection');
+        foreach ($fileLinks as $file) {
 
-            $db = $this->connection;
+            $url = strtok($file['url'], '#');
 
-            $this->debug('Doctrine DBAL connection ready', [
-                'driver' => get_class($db->getDriver()),
-            ]);
+            /*
+             * =====================
+             * 🔥 DOWNLOAD-URL-NORMALISIERUNG (FIX)
+             * =====================
+             */
+            if (str_contains($url, 'p=')) {
+                parse_str(parse_url($url, PHP_URL_QUERY) ?? '', $q);
 
-            $time = time();
+                if (!empty($q['p'])) {
+                    $url = '/' . ltrim(rawurldecode($q['p']), '/');
 
-            foreach ($fileLinks as $file) {
-
-                $url = strtok($file['url'], '#');
-
-                $this->setLastState('Before DB query', [
-                    'file_url' => $url,
-                    'len'      => strlen((string) $url),
-                ]);
-
-                $this->debug('Before DB query', [
-                    'url' => $url,
-                    'len' => strlen((string) $url),
-                    'raw' => $file['url'],
-                ]);
-
-                if (!is_string($url) || $url === '') {
-                    $this->debug('Invalid URL before DB query');
-                    continue;
-                }
-
-                $path = parse_url($url, PHP_URL_PATH);
-                $abs  = $path ? TL_ROOT . '/' . ltrim($path, '/') : null;
-
-                $mtime = ($abs && is_file($abs)) ? filemtime($abs) : 0;
-                $checksum = md5($url . '|' . $mtime);
-
-                try {
-                    $existing = $db->fetchAssociative(
-                        'SELECT id, checksum FROM tl_search_files WHERE url = ?',
-                        [$url]
-                    );
-                } catch (\Throwable $e) {
-                    $this->debug('DB fetchAssociative failed', [
-                        'error' => $e->getMessage(),
-                        'class' => $e::class,
-                    ]);
-                    continue;
-                }
-
-                $this->debug('After DB query', [
-                    'found' => (bool) $existing,
-                ]);
-
-                if ($existing) {
-                    $db->update(
-                        'tl_search_files',
-                        [
-                            'tstamp'      => $time,
-                            'last_seen'   => $time,
-                            'page_id'     => (int) ($data['pid'] ?? 0),
-                            'file_mtime'  => $mtime,
-                            'checksum'    => $checksum,
-                        ],
-                        ['id' => $existing['id']]
-                    );
-
-                    $this->debug('File updated', [
-                        'url'      => $url,
-                        'checksum' => $checksum,
-                    ]);
-                } else {
-                    $db->insert(
-                        'tl_search_files',
-                        [
-                            'tstamp'     => $time,
-                            'last_seen'  => $time,
-                            'type'       => $file['type'],
-                            'url'        => $url,
-                            'title'      => $file['linkText'] ?? basename($url),
-                            'page_id'    => (int) ($data['pid'] ?? 0),
-                            'file_mtime' => $mtime,
-                            'checksum'   => $checksum,
-                        ]
-                    );
-
-                    $this->debug('File inserted', [
-                        'url'      => $url,
-                        'checksum' => $checksum,
+                    $this->debug('Normalized download URL', [
+                        'normalized' => $url,
                     ]);
                 }
             }
+
+            if (!is_string($url) || $url === '') {
+                continue;
+            }
+
+            $path = parse_url($url, PHP_URL_PATH);
+            $abs  = $path ? TL_ROOT . '/' . ltrim($path, '/') : null;
+
+            $mtime    = ($abs && is_file($abs)) ? filemtime($abs) : 0;
+            $checksum = md5($url . '|' . $mtime);
+
+            try {
+                $existing = $db->fetchAssociative(
+                    'SELECT id FROM tl_search_files WHERE url = ?',
+                    [$url]
+                );
+            } catch (\Throwable $e) {
+                $this->debug('DB error (file indexing)', [
+                    'url'   => $url,
+                    'error' => $e->getMessage(),
+                ]);
+                continue;
+            }
+
+            if ($existing) {
+                $db->update(
+                    'tl_search_files',
+                    [
+                        'tstamp'     => $time,
+                        'last_seen'  => $time,
+                        'page_id'    => (int) ($data['pid'] ?? 0),
+                        'file_mtime' => $mtime,
+                        'checksum'   => $checksum,
+                    ],
+                    ['id' => $existing['id']]
+                );
+            } else {
+                $db->insert(
+                    'tl_search_files',
+                    [
+                        'tstamp'     => $time,
+                        'last_seen'  => $time,
+                        'type'       => $file['type'],
+                        'url'        => $url,
+                        'title'      => $file['linkText'] ?? basename($url),
+                        'page_id'    => (int) ($data['pid'] ?? 0),
+                        'file_mtime' => $mtime,
+                        'checksum'   => $checksum,
+                    ]
+                );
+            }
         }
 
-        $this->setLastState('Hook end', [
-            'final_set_keys' => array_keys($set),
-        ]);
-
-        $this->debug('Hook end', [
-            'final_set_keys' => array_keys($set),
-        ]);
+        $this->debug('Hook end');
     }
 
-    /* === Hilfsmethoden unverändert === */
+    /* === Hilfsmethoden === */
 
     private function extractMeilisearchJson(string $content): ?array
     {
@@ -358,12 +166,9 @@ class IndexPageListener
             return null;
         }
 
-        $json = preg_replace('/^\xEF\xBB\xBF/', '', trim($m[1]));
-        $data = json_decode($json, true);
+        $data = json_decode(trim($m[1]), true);
 
-        return json_last_error() === JSON_ERROR_NONE && is_array($data)
-            ? $data
-            : null;
+        return json_last_error() === JSON_ERROR_NONE ? $data : null;
     }
 
     private function findAllLinks(string $content): array
@@ -391,11 +196,7 @@ class IndexPageListener
     private function detectIndexableFileType(string $url): ?string
     {
         $url = strtok($url, '#');
-
         $parts = parse_url($url);
-        if (!$parts) {
-            return null;
-        }
 
         if (!empty($parts['path'])) {
             $ext = strtolower(pathinfo($parts['path'], PATHINFO_EXTENSION));
@@ -409,9 +210,7 @@ class IndexPageListener
 
             foreach (['file', 'p', 'f'] as $param) {
                 if (!empty($query[$param])) {
-                    $candidate = rawurldecode(html_entity_decode((string) $query[$param], ENT_QUOTES));
-                    $ext = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
-
+                    $ext = strtolower(pathinfo($query[$param], PATHINFO_EXTENSION));
                     if (in_array($ext, ['pdf', 'docx', 'xlsx', 'pptx'], true)) {
                         return $ext;
                     }
