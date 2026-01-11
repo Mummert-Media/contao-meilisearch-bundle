@@ -7,6 +7,14 @@ use Doctrine\DBAL\Connection;
 
 class IndexPageListener
 {
+    private static bool $shutdownRegistered = false;
+
+    /**
+     * Letzter Debug-Stand, damit wir bei Fatal Errors (Timeout, Memory etc.)
+     * per Shutdown-Handler sehen, wo er gestorben ist.
+     */
+    private static array $lastState = [];
+
     public function __construct(
         private readonly Connection $connection,
     ) {
@@ -14,14 +22,55 @@ class IndexPageListener
 
     private function debug(string $message, array $context = []): void
     {
-        // Debug bewusst immer aktiv (bis du es wieder entfernst)
-        // Kontext kurz halten, damit Logs nicht explodieren
         $ctx = $context ? ' | ' . json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '';
         error_log('[ContaoMeilisearch][IndexPageListener] ' . $message . $ctx);
     }
 
+    private function registerShutdownOnce(): void
+    {
+        if (self::$shutdownRegistered) {
+            return;
+        }
+
+        self::$shutdownRegistered = true;
+
+        register_shutdown_function(function (): void {
+            $err = error_get_last();
+
+            // Nur loggen, wenn wirklich ein letzter Fehler vorhanden ist
+            if (!$err) {
+                return;
+            }
+
+            error_log('[ContaoMeilisearch][IndexPageListener] SHUTDOWN last_error | '
+                . json_encode([
+                    'type'    => $err['type'] ?? null,
+                    'message' => $err['message'] ?? null,
+                    'file'    => $err['file'] ?? null,
+                    'line'    => $err['line'] ?? null,
+                    'state'   => self::$lastState,
+                ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+            );
+        });
+    }
+
+    private function setLastState(string $stage, array $context = []): void
+    {
+        self::$lastState = [
+            'stage'   => $stage,
+            'context' => $context,
+            'ts'      => time(),
+        ];
+    }
+
     public function onIndexPage(string $content, array &$data, array &$set): void
     {
+        $this->registerShutdownOnce();
+
+        $this->setLastState('Hook start', [
+            'page_url' => $data['url'] ?? null,
+        ]);
+
         $this->debug('Hook start', [
             'url'       => $data['url'] ?? null,
             'protected' => $data['protected'] ?? null,
@@ -35,6 +84,11 @@ class IndexPageListener
          * =====================
          */
         $hasMeta = str_contains($content, 'MEILISEARCH_JSON');
+
+        $this->setLastState('Meta marker scan', [
+            'contains_MEILISEARCH_JSON' => $hasMeta,
+        ]);
+
         $this->debug('Meta marker scan', [
             'contains_MEILISEARCH_JSON' => $hasMeta,
             'content_length'            => strlen($content),
@@ -43,6 +97,11 @@ class IndexPageListener
         if ($hasMeta) {
             try {
                 $parsed = $this->extractMeilisearchJson($content);
+
+                $this->setLastState('extractMeilisearchJson done', [
+                    'parsed_is_array' => is_array($parsed),
+                ]);
+
                 $this->debug('extractMeilisearchJson(): done', [
                     'parsed_is_array' => is_array($parsed),
                     'parsed_keys'     => is_array($parsed) ? array_keys($parsed) : null,
@@ -162,6 +221,11 @@ class IndexPageListener
         }
 
         $links = $this->findAllLinks($content);
+
+        $this->setLastState('Links found', [
+            'count' => count($links),
+        ]);
+
         $this->debug('Links found', ['count' => count($links)]);
 
         $fileLinks = [];
@@ -172,6 +236,11 @@ class IndexPageListener
                 $fileLinks[] = $link + ['type' => $type];
             }
         }
+
+        $this->setLastState('Indexable file links found', [
+            'count' => count($fileLinks),
+            'types' => array_count_values(array_column($fileLinks, 'type')),
+        ]);
 
         $this->debug('Indexable file links found', [
             'count' => count($fileLinks),
@@ -193,13 +262,17 @@ class IndexPageListener
 
                 $url = strtok($file['url'], '#');
 
+                $this->setLastState('Before DB query', [
+                    'file_url' => $url,
+                    'len'      => strlen((string) $url),
+                ]);
+
                 $this->debug('Before DB query', [
                     'url' => $url,
                     'len' => strlen((string) $url),
                     'raw' => $file['url'],
                 ]);
 
-                // ⛳️ Explizit prüfen, ob PHP bis hier kommt
                 if (!is_string($url) || $url === '') {
                     $this->debug('Invalid URL before DB query');
                     continue;
@@ -267,6 +340,10 @@ class IndexPageListener
                 }
             }
         }
+
+        $this->setLastState('Hook end', [
+            'final_set_keys' => array_keys($set),
+        ]);
 
         $this->debug('Hook end', [
             'final_set_keys' => array_keys($set),
