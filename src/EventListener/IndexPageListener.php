@@ -4,18 +4,21 @@ namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
 use Contao\Config;
 use Contao\System;
+use Doctrine\DBAL\Connection;
 
 class IndexPageListener
 {
-    public function __construct()
-    {
+    public function __construct(
+        private readonly Connection $connection,
+    ) {
     }
 
     private function debug(string $message, array $context = []): void
     {
-        // Debug bewusst immer aktiv (bis du es wieder entfernst)
-        // Kontext kurz halten, damit Logs nicht explodieren
-        $ctx = $context ? ' | ' . json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '';
+        $ctx = $context
+            ? ' | ' . json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+            : '';
+
         error_log('[ContaoMeilisearch][IndexPageListener] ' . $message . $ctx);
     }
 
@@ -178,7 +181,15 @@ class IndexPageListener
         ]);
 
         if ($fileLinks) {
-            $db   = System::getContainer()->get('database_connection');
+
+            $this->debug('About to use Doctrine DBAL connection');
+
+            $db = $this->connection;
+
+            $this->debug('Doctrine DBAL connection ready', [
+                'driver' => get_class($db->getDriver()),
+            ]);
+
             $time = time();
 
             foreach ($fileLinks as $file) {
