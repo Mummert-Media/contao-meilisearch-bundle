@@ -3,7 +3,6 @@
 namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
 use Contao\Config;
-use Contao\System;
 use Doctrine\DBAL\Connection;
 
 class IndexPageListener
@@ -15,10 +14,9 @@ class IndexPageListener
 
     private function debug(string $message, array $context = []): void
     {
-        $ctx = $context
-            ? ' | ' . json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
-            : '';
-
+        // Debug bewusst immer aktiv (bis du es wieder entfernst)
+        // Kontext kurz halten, damit Logs nicht explodieren
+        $ctx = $context ? ' | ' . json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '';
         error_log('[ContaoMeilisearch][IndexPageListener] ' . $message . $ctx);
     }
 
@@ -181,7 +179,6 @@ class IndexPageListener
         ]);
 
         if ($fileLinks) {
-
             $this->debug('About to use Doctrine DBAL connection');
 
             $db = $this->connection;
@@ -193,7 +190,20 @@ class IndexPageListener
             $time = time();
 
             foreach ($fileLinks as $file) {
+
                 $url = strtok($file['url'], '#');
+
+                $this->debug('Before DB query', [
+                    'url' => $url,
+                    'len' => strlen((string) $url),
+                    'raw' => $file['url'],
+                ]);
+
+                // ⛳️ Explizit prüfen, ob PHP bis hier kommt
+                if (!is_string($url) || $url === '') {
+                    $this->debug('Invalid URL before DB query');
+                    continue;
+                }
 
                 $path = parse_url($url, PHP_URL_PATH);
                 $abs  = $path ? TL_ROOT . '/' . ltrim($path, '/') : null;
@@ -201,10 +211,22 @@ class IndexPageListener
                 $mtime = ($abs && is_file($abs)) ? filemtime($abs) : 0;
                 $checksum = md5($url . '|' . $mtime);
 
-                $existing = $db->fetchAssociative(
-                    'SELECT id, checksum FROM tl_search_files WHERE url = ?',
-                    [$url]
-                );
+                try {
+                    $existing = $db->fetchAssociative(
+                        'SELECT id, checksum FROM tl_search_files WHERE url = ?',
+                        [$url]
+                    );
+                } catch (\Throwable $e) {
+                    $this->debug('DB fetchAssociative failed', [
+                        'error' => $e->getMessage(),
+                        'class' => $e::class,
+                    ]);
+                    continue;
+                }
+
+                $this->debug('After DB query', [
+                    'found' => (bool) $existing,
+                ]);
 
                 if ($existing) {
                     $db->update(
