@@ -181,55 +181,63 @@ class IndexPageListener
             $db   = System::getContainer()->get('database_connection');
             $time = time();
 
+            // ✅ Contao 5.x robust: Projektverzeichnis statt TL_ROOT
+            $projectDir = System::getContainer()->getParameter('kernel.project_dir');
+
             foreach ($fileLinks as $file) {
-                $url = strtok($file['url'], '#');
+                try {
+                    $url  = strtok($file['url'], '#');
 
-                $path = parse_url($url, PHP_URL_PATH);
-                $abs  = $path ? TL_ROOT . '/' . ltrim($path, '/') : null;
+                    $path = parse_url($url, PHP_URL_PATH);
+                    $abs  = $path ? $projectDir . '/public/' . ltrim($path, '/') : null;
 
-                $mtime = ($abs && is_file($abs)) ? filemtime($abs) : 0;
-                $checksum = md5($url . '|' . $mtime);
+                    $mtime    = ($abs && is_file($abs)) ? filemtime($abs) : 0;
+                    $checksum = md5($url . '|' . $mtime);
 
-                $existing = $db->fetchAssociative(
-                    'SELECT id, checksum FROM tl_search_files WHERE url = ?',
-                    [$url]
-                );
-
-                if ($existing) {
-                    $db->update(
-                        'tl_search_files',
-                        [
-                            'tstamp'      => $time,
-                            'last_seen'   => $time,
-                            'page_id'     => (int) ($data['pid'] ?? 0),
-                            'file_mtime'  => $mtime,
-                            'checksum'    => $checksum,
-                        ],
-                        ['id' => $existing['id']]
+                    $existing = $db->fetchAssociative(
+                        'SELECT id, checksum FROM tl_search_files WHERE url = ?',
+                        [$url]
                     );
 
-                    $this->debug('File updated', [
-                        'url'      => $url,
-                        'checksum' => $checksum,
-                    ]);
-                } else {
-                    $db->insert(
-                        'tl_search_files',
-                        [
-                            'tstamp'     => $time,
-                            'last_seen'  => $time,
-                            'type'       => $file['type'],
-                            'url'        => $url,
-                            'title'      => $file['linkText'] ?? basename($url),
-                            'page_id'    => (int) ($data['pid'] ?? 0),
-                            'file_mtime' => $mtime,
-                            'checksum'   => $checksum,
-                        ]
-                    );
+                    if ($existing) {
+                        $db->update(
+                            'tl_search_files',
+                            [
+                                'tstamp'     => $time,
+                                'last_seen'  => $time,
+                                'page_id'    => (int) ($data['pid'] ?? 0),
+                                'file_mtime' => $mtime,
+                                'checksum'   => $checksum,
+                            ],
+                            ['id' => $existing['id']]
+                        );
 
-                    $this->debug('File inserted', [
-                        'url'      => $url,
-                        'checksum' => $checksum,
+                        $this->debug('File updated', ['url' => $url, 'checksum' => $checksum]);
+                    } else {
+                        $db->insert(
+                            'tl_search_files',
+                            [
+                                'tstamp'     => $time,
+                                'last_seen'  => $time,
+                                'type'       => $file['type'],
+                                'url'        => $url,
+                                'title'      => $file['linkText'] ?? basename($url),
+                                'page_id'    => (int) ($data['pid'] ?? 0),
+                                'file_mtime' => $mtime,
+                                'checksum'   => $checksum,
+                            ]
+                        );
+
+                        $this->debug('File inserted', ['url' => $url, 'checksum' => $checksum]);
+                    }
+                } catch (\Throwable $e) {
+                    $this->debug('File upsert FAILED', [
+                        'url'    => $file['url'] ?? null,
+                        'type'   => $file['type'] ?? null,
+                        'error'  => $e->getMessage(),
+                        'class'  => $e::class,
+                        // falls DBAL-Exception: SQLSTATE/Code helfen brutal beim Finden
+                        'code'   => $e->getCode(),
                     ]);
                 }
             }
