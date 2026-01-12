@@ -26,10 +26,10 @@ class MeilisearchFileHelper
         ]);
 
         // -------------------------------------------------
-        // 1. URL zerlegen
+        // 1. URL normalisieren
         // -------------------------------------------------
         $cleanUrl = strtok($url, '#');
-        $parts = parse_url($cleanUrl);
+        $parts    = parse_url($cleanUrl);
 
         if (!$parts) {
             $this->log('Invalid URL, skip');
@@ -37,12 +37,16 @@ class MeilisearchFileHelper
         }
 
         // -------------------------------------------------
-        // 2. Externe Datei?
+        // 2. Externe Datei? → skip
         // -------------------------------------------------
         if (!empty($parts['host'])) {
-            $pageHost = parse_url(System::getContainer()
+            $currentRequest = System::getContainer()
                 ->get('request_stack')
-                ->getCurrentRequest()?->getUri() ?? '', PHP_URL_HOST);
+                ->getCurrentRequest();
+
+            $pageHost = $currentRequest
+                ? parse_url($currentRequest->getSchemeAndHttpHost(), PHP_URL_HOST)
+                : null;
 
             if ($pageHost && $parts['host'] !== $pageHost) {
                 $this->log('External file detected, skip', [
@@ -52,9 +56,9 @@ class MeilisearchFileHelper
             }
         }
 
-// -------------------------------------------------
-// 3. Normalisierten lokalen Pfad ermitteln (UUID-first)
-// -------------------------------------------------
+        // -------------------------------------------------
+        // 3. Pfad-Kandidaten sammeln (ohne Annahmen!)
+        // -------------------------------------------------
         $query = [];
         if (!empty($parts['query'])) {
             parse_str($parts['query'], $query);
@@ -62,49 +66,54 @@ class MeilisearchFileHelper
 
         $pathCandidates = [];
 
-// direkter Pfad
+        // direkter Pfad
         if (!empty($parts['path'])) {
             $pathCandidates[] = $parts['path'];
         }
 
-// Download-Parameter
+        // Download-Parameter
         foreach (['file', 'f', 'p'] as $param) {
             if (!empty($query[$param])) {
                 $pathCandidates[] = $query[$param];
             }
         }
 
+        // normalisieren
         $pathCandidates = array_values(array_unique(array_filter(array_map(
-            static function ($c) {
-                $c = rawurldecode(html_entity_decode((string) $c, ENT_QUOTES));
-                $c = ltrim($c, '/');
-                return $c !== '' ? $c : null;
+            static function ($candidate) {
+                $candidate = rawurldecode(html_entity_decode((string) $candidate, ENT_QUOTES));
+                return ltrim($candidate, '/') ?: null;
             },
             $pathCandidates
         ))));
 
-        $this->log('Path candidates (normalized)', ['candidates' => $pathCandidates]);
+        $this->log('Path candidates (normalized)', [
+            'candidates' => $pathCandidates,
+        ]);
 
-        $resolvedModel = null;
+        // -------------------------------------------------
+        // 4. FilesModel (DBAFS) auflösen → UUID
+        // -------------------------------------------------
+        $fileModel = null;
 
-// Wir testen Kandidaten in dieser Reihenfolge:
-// - kandidat selbst
-// - falls nicht mit "files/" beginnt: zusätzlich "files/".$kandidat
         foreach ($pathCandidates as $candidate) {
 
-            // 1) direkt versuchen
+            // 1) direkt
             $model = FilesModel::findByPath($candidate);
             if ($model && $model->uuid) {
-                $resolvedModel = $model;
-                $this->log('Resolved via FilesModel (direct)', ['candidate' => $candidate, 'path' => $model->path]);
+                $fileModel = $model;
+                $this->log('Resolved via FilesModel (direct)', [
+                    'candidate' => $candidate,
+                    'path'      => $model->path,
+                ]);
                 break;
             }
 
-            // 2) fallback: "files/" davor (ohne Annahme über Ordnerstruktur)
+            // 2) fallback: files/ davor
             if (!str_starts_with($candidate, 'files/')) {
                 $model = FilesModel::findByPath('files/' . $candidate);
                 if ($model && $model->uuid) {
-                    $resolvedModel = $model;
+                    $fileModel = $model;
                     $this->log('Resolved via FilesModel (files/ prefix)', [
                         'candidate' => $candidate,
                         'path'      => $model->path,
@@ -114,24 +123,30 @@ class MeilisearchFileHelper
             }
         }
 
-        if (!$resolvedModel) {
-            $this->log('No Contao file model found for candidates, skip', ['candidates' => $pathCandidates]);
+        if (!$fileModel) {
+            $this->log('No Contao file model found, skip', [
+                'candidates' => $pathCandidates,
+            ]);
             return;
         }
 
-        $normalizedPath = (string) $resolvedModel->path;
-        $uuidBin        = $resolvedModel->uuid;
+        $normalizedPath = (string) $fileModel->path;
+        $uuidBin        = $fileModel->uuid;
+        $uuid           = StringUtil::binToUuid($uuidBin);
 
         $this->log('UUID resolved', [
             'path' => $normalizedPath,
-            'uuid' => StringUtil::binToUuid($uuidBin),
+            'uuid' => $uuid,
         ]);
 
+        // -------------------------------------------------
+        // 5. Datei im Filesystem prüfen
+        // -------------------------------------------------
         $projectDir = System::getContainer()->getParameter('kernel.project_dir');
-        $abs = $projectDir . '/public/' . $normalizedPath;
+        $abs        = $projectDir . '/public/' . $normalizedPath;
 
         if (!is_file($abs)) {
-            $this->log('Resolved model but file missing on FS, skip', [
+            $this->log('Resolved model but file missing on filesystem, skip', [
                 'path' => $normalizedPath,
                 'abs'  => $abs,
             ]);
@@ -139,36 +154,31 @@ class MeilisearchFileHelper
         }
 
         // -------------------------------------------------
-        // 4. UUID aus Contao ermitteln
+        // 6. Redaktionellen Titel aus tl_files.meta
         // -------------------------------------------------
-        $fileModel = FilesModel::findByPath($normalizedPath);
+        $title = null;
+        $meta  = StringUtil::deserialize($fileModel->meta, true);
+        $lang  = $GLOBALS['TL_LANGUAGE'] ?? 'de';
 
-        if (!$fileModel || !$fileModel->uuid) {
-            $this->log('File has no Contao UUID, skip', [
-                'path' => $normalizedPath,
-            ]);
-            return;
+        if (!empty($meta[$lang]['title'])) {
+            $title = trim((string) $meta[$lang]['title']);
         }
 
-        $uuidBin = $fileModel->uuid;
-
-        $this->log('UUID resolved', [
-            'path' => $normalizedPath,
-            'uuid' => StringUtil::binToUuid($uuidBin),
-        ]);
+        if ($title) {
+            $this->log('Title resolved from tl_files', [
+                'title' => $title,
+            ]);
+        }
 
         // -------------------------------------------------
-        // 5. Dateiinformationen
+        // 7. Datei-Infos
         // -------------------------------------------------
-        $abs = System::getContainer()->getParameter('kernel.project_dir') . '/public/' . $normalizedPath;
-
-        $mtime = filemtime($abs) ?: 0;
+        $mtime    = filemtime($abs) ?: 0;
         $checksum = md5($normalizedPath . '|' . $mtime);
-
-        $now = time();
+        $now      = time();
 
         // -------------------------------------------------
-        // 6. Existiert Eintrag bereits über UUID?
+        // 8. Upsert über UUID
         // -------------------------------------------------
         $existing = $this->connection->fetchAssociative(
             'SELECT id FROM tl_search_files WHERE uuid = ?',
@@ -176,26 +186,30 @@ class MeilisearchFileHelper
         );
 
         if ($existing) {
-            // UPDATE
+            $data = [
+                'tstamp'     => $now,
+                'last_seen'  => $now,
+                'type'       => $type,
+                'url'        => $cleanUrl,
+                'page_id'    => $pageId,
+                'file_mtime' => $mtime,
+                'checksum'   => $checksum,
+            ];
+
+            if ($title !== null) {
+                $data['title'] = $title;
+            }
+
             $this->connection->update(
                 'tl_search_files',
-                [
-                    'tstamp'     => $now,
-                    'last_seen'  => $now,
-                    'type'       => $type,
-                    'url'        => $cleanUrl,
-                    'page_id'    => $pageId,
-                    'file_mtime' => $mtime,
-                    'checksum'   => $checksum,
-                ],
+                $data,
                 ['id' => $existing['id']]
             );
 
             $this->log('File updated by UUID', [
-                'uuid' => StringUtil::binToUuid($uuidBin),
+                'uuid' => $uuid,
             ]);
         } else {
-            // INSERT
             $this->connection->insert(
                 'tl_search_files',
                 [
@@ -203,7 +217,7 @@ class MeilisearchFileHelper
                     'last_seen'  => $now,
                     'type'       => $type,
                     'url'        => $cleanUrl,
-                    'title'      => basename($normalizedPath),
+                    'title'      => $title ?? basename($normalizedPath),
                     'page_id'    => $pageId,
                     'file_mtime' => $mtime,
                     'checksum'   => $checksum,
@@ -212,7 +226,7 @@ class MeilisearchFileHelper
             );
 
             $this->log('File inserted by UUID', [
-                'uuid' => StringUtil::binToUuid($uuidBin),
+                'uuid' => $uuid,
             ]);
         }
 
