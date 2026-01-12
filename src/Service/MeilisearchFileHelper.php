@@ -130,13 +130,6 @@ class MeilisearchFileHelper
             return;
         }
 
-        // ✅ HIER ist $fileModel garantiert vorhanden
-        $meta = StringUtil::deserialize($fileModel->meta, true);
-
-        $this->log('tl_files.meta raw', [
-            'meta' => $meta,
-        ]);
-
         $normalizedPath = (string) $fileModel->path;
         $uuidBin        = $fileModel->uuid;
         $uuid            = StringUtil::binToUuid($uuidBin);
@@ -160,15 +153,26 @@ class MeilisearchFileHelper
             return;
         }
 
-        // -------------------------------------------------
-        // 6. Redaktionellen Titel aus tl_files.meta
-        // -------------------------------------------------
+// -------------------------------------------------
+// 6. Redaktionellen Titel aus tl_files.meta
+// -------------------------------------------------
         $title = null;
         $meta  = StringUtil::deserialize($fileModel->meta, true);
-        $lang  = $GLOBALS['TL_LANGUAGE'] ?? 'de';
 
-        if (!empty($meta[$lang]['title'])) {
+// 1) bevorzugte Sprache (falls vorhanden)
+        $lang = $GLOBALS['TL_LANGUAGE'] ?? null;
+        if ($lang && !empty($meta[$lang]['title'])) {
             $title = trim((string) $meta[$lang]['title']);
+        }
+
+// 2) Fallback: erste verfügbare Sprache
+        if ($title === null && is_array($meta)) {
+            foreach ($meta as $langKey => $langMeta) {
+                if (!empty($langMeta['title'])) {
+                    $title = trim((string) $langMeta['title']);
+                    break;
+                }
+            }
         }
 
         if ($title) {
