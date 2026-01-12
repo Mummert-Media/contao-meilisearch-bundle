@@ -102,7 +102,11 @@ class MeilisearchFilesParseCommand extends Command
                 continue;
             }
 
-            $absolutePath = TL_ROOT . '/' . $normalized;
+            $root = defined('TL_ROOT')
+                ? TL_ROOT
+                : $this->framework->getContainer()->getParameter('kernel.project_dir') . '/public';
+
+            $absolutePath = $root . '/' . $normalized;
 
             if (!is_file($absolutePath)) {
                 $this->log('File missing, skip', [
