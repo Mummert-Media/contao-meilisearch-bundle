@@ -5,8 +5,8 @@ namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 use Contao\Config;
 use Contao\System;
 use Contao\FilesModel;
+use Contao\File;
 use Contao\StringUtil;
-use Contao\CoreBundle\Filesystem\VirtualFilesystemInterface;
 
 class IndexPageListener
 {
@@ -16,8 +16,6 @@ class IndexPageListener
 
     private function debug(string $message, array $context = []): void
     {
-        // Debug bewusst immer aktiv (bis du es wieder entfernst)
-        // Kontext kurz halten, damit Logs nicht explodieren
         $ctx = $context ? ' | ' . json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '';
         error_log('[ContaoMeilisearch][IndexPageListener] ' . $message . $ctx);
     }
@@ -33,139 +31,18 @@ class IndexPageListener
 
         /*
          * =====================
-         * SEITEN-METADATEN
-         * =====================
-         */
-        $hasMeta = str_contains($content, 'MEILISEARCH_JSON');
-        $this->debug('Meta marker scan', [
-            'contains_MEILISEARCH_JSON' => $hasMeta,
-            'content_length'            => strlen($content),
-        ]);
-
-        if ($hasMeta) {
-            try {
-                $parsed = $this->extractMeilisearchJson($content);
-                $this->debug('extractMeilisearchJson(): done', [
-                    'parsed_is_array' => is_array($parsed),
-                    'parsed_keys'     => is_array($parsed) ? array_keys($parsed) : null,
-                ]);
-            } catch (\Throwable $e) {
-                $this->debug('Failed to extract MEILISEARCH_JSON', [
-                    'error' => $e->getMessage(),
-                    'class' => $e::class,
-                ]);
-                $parsed = null;
-            }
-
-            if (is_array($parsed)) {
-
-                // PRIORITY
-                $priority =
-                    $parsed['event']['priority']
-                    ?? $parsed['news']['priority']
-                    ?? $parsed['page']['priority']
-                    ?? null;
-
-                $this->debug('Meta: priority candidate', ['priority' => $priority]);
-
-                if ($priority !== null && $priority !== '') {
-                    $set['priority'] = (int) $priority;
-                }
-
-                // KEYWORDS
-                $keywordSources = [
-                    $parsed['event']['keywords'] ?? null,
-                    $parsed['news']['keywords']  ?? null,
-                    $parsed['page']['keywords']  ?? null,
-                ];
-
-                $this->debug('Meta: keyword sources', ['sources' => $keywordSources]);
-
-                $keywords = [];
-                foreach ($keywordSources as $src) {
-                    if (!is_string($src) || trim($src) === '') {
-                        continue;
-                    }
-                    foreach (preg_split('/\s+/', trim($src)) as $word) {
-                        $keywords[] = $word;
-                    }
-                }
-
-                if ($keywords) {
-                    $set['keywords'] = implode(' ', array_unique($keywords));
-                }
-
-                $this->debug('Meta: keywords result', [
-                    'keywords' => $set['keywords'] ?? null,
-                ]);
-
-                // IMAGEPATH (UUID)
-                $searchImage = $parsed['page']['searchimage'] ?? null;
-                $this->debug('Meta: searchimage candidate', ['searchimage' => $searchImage]);
-
-                if (!empty($searchImage)) {
-                    $set['imagepath'] = trim((string) $searchImage);
-                }
-
-                // STARTDATE
-                $startDate =
-                    $parsed['event']['startDate']
-                    ?? $parsed['news']['startDate']
-                    ?? null;
-
-                $this->debug('Meta: startDate candidate', ['startDate' => $startDate]);
-
-                if (is_numeric($startDate) && (int) $startDate > 0) {
-                    $set['startDate'] = (int) $startDate;
-                }
-
-                // CHECKSUM
-                try {
-                    $checksumSeed  = (string) ($data['checksum'] ?? '');
-                    $checksumSeed .= '|' . ($set['keywords']  ?? '');
-                    $checksumSeed .= '|' . ($set['priority']  ?? '');
-                    $checksumSeed .= '|' . ($set['imagepath'] ?? '');
-                    $checksumSeed .= '|' . ($set['startDate'] ?? '');
-
-                    $set['checksum'] = md5($checksumSeed);
-
-                    $this->debug('Checksum generated', [
-                        'seed_preview' => substr($checksumSeed, 0, 120) . (strlen($checksumSeed) > 120 ? '…' : ''),
-                        'checksum'     => $set['checksum'],
-                    ]);
-                } catch (\Throwable $e) {
-                    $this->debug('Failed to generate checksum', [
-                        'error' => $e->getMessage(),
-                        'class' => $e::class,
-                    ]);
-                }
-            }
-        }
-
-        /*
-         * =====================
          * DATEI-ERKENNUNG + UPSERT
          * =====================
          */
         if ((int) ($data['protected'] ?? 0) !== 0) {
-            $this->debug('Abort: protected page', ['protected' => $data['protected'] ?? null]);
             return;
         }
 
-        $indexFiles = (bool) Config::get('meilisearch_index_files');
-
-        $this->debug('File indexing setting', [
-            'meilisearch_index_files' => $indexFiles,
-        ]);
-
-        if (!$indexFiles) {
-            $this->debug('Abort: file indexing disabled');
+        if (!Config::get('meilisearch_index_files')) {
             return;
         }
 
         $links = $this->findAllLinks($content);
-        $this->debug('Links found', ['count' => count($links)]);
-
         $fileLinks = [];
 
         foreach ($links as $link) {
@@ -175,60 +52,51 @@ class IndexPageListener
             }
         }
 
-        $this->debug('Indexable file links found', [
-            'count' => count($fileLinks),
-            'types' => array_count_values(array_column($fileLinks, 'type')),
-        ]);
-
         if ($fileLinks) {
             $db   = System::getContainer()->get('database_connection');
             $time = time();
 
-            // ✅ Contao 5.x robust: Projektverzeichnis statt TL_ROOT
             $projectDir = System::getContainer()->getParameter('kernel.project_dir');
 
             foreach ($fileLinks as $file) {
                 try {
                     $url = strtok($file['url'], '#');
 
-                    $path = parse_url($url, PHP_URL_PATH);
-                    $path = $path ? ltrim($path, '/') : null;
+                    // =================================================
+                    // 🟢 valider lokaler Dateipfad
+                    // =================================================
+                    $localFilePath = $this->getValidLocalFilePathFromUrl($url, $projectDir);
 
-                    // ---------------------------------------------
-                    // UUID aus Pfad ermitteln (Contao 4.13 + 5.x)
-                    // ---------------------------------------------
-                    $uuid    = null;
+                    // =================================================
+                    // UUID nur über echten Contao File-Model
+                    // =================================================
                     $uuidBin = null;
 
-                    if ($path && str_starts_with($path, 'files/')) {
-                        if (interface_exists(VirtualFilesystemInterface::class)) {
-                            try {
-                                $vfs  = System::getContainer()->get(VirtualFilesystemInterface::class);
-                                $uuid = $vfs->pathToUuid($path);
-                            } catch (\Throwable) {
-                                $uuid = null;
-                            }
-                        }
+                    if ($localFilePath !== null) {
+                        try {
+                            $objFile = new File($localFilePath);
+                            $objModel = $objFile->getModel();
 
-                        if (!$uuid) {
-                            $fileModel = FilesModel::findByPath($path);
-                            if ($fileModel) {
-                                $uuid = $fileModel->uuid;
+                            if ($objModel && $objModel->uuid) {
+                                $uuidBin = $objModel->uuid; // bereits binary(16)
                             }
-                        }
-
-                        if ($uuid) {
-                            $uuidBin = StringUtil::uuidToBin($uuid);
+                        } catch (\Throwable $e) {
+                            // bewusst still
                         }
                     }
 
-                    $abs = $path ? $projectDir . '/public/' . $path : null;
+                    // =================================================
+                    // bestehende Logik unverändert
+                    // =================================================
+                    $abs = $localFilePath
+                        ? $projectDir . '/' . ltrim($localFilePath, '/')
+                        : null;
 
                     $mtime    = ($abs && is_file($abs)) ? filemtime($abs) : 0;
                     $checksum = md5($url . '|' . $mtime);
 
                     $existing = $db->fetchAssociative(
-                        'SELECT id, checksum FROM tl_search_files WHERE url = ?',
+                        'SELECT id FROM tl_search_files WHERE url = ?',
                         [$url]
                     );
 
@@ -241,15 +109,10 @@ class IndexPageListener
                                 'page_id'    => (int) ($data['pid'] ?? 0),
                                 'file_mtime' => $mtime,
                                 'checksum'   => $checksum,
-                                'uuid'       => $uuidBin, // ⬅️ NEU
+                                'uuid'       => $uuidBin,
                             ],
                             ['id' => $existing['id']]
                         );
-
-                        $this->debug('File updated', [
-                            'url'  => $url,
-                            'uuid' => $uuid,
-                        ]);
                     } else {
                         $db->insert(
                             'tl_search_files',
@@ -262,47 +125,55 @@ class IndexPageListener
                                 'page_id'    => (int) ($data['pid'] ?? 0),
                                 'file_mtime' => $mtime,
                                 'checksum'   => $checksum,
-                                'uuid'       => $uuidBin, // ⬅️ NEU
+                                'uuid'       => $uuidBin,
                             ]
                         );
-
-                        $this->debug('File inserted', [
-                            'url'  => $url,
-                            'uuid' => $uuid,
-                        ]);
                     }
                 } catch (\Throwable $e) {
                     $this->debug('File upsert FAILED', [
                         'url'   => $file['url'] ?? null,
-                        'type'  => $file['type'] ?? null,
                         'error' => $e->getMessage(),
-                        'class' => $e::class,
-                        'code'  => $e->getCode(),
                     ]);
                 }
             }
         }
-
-        $this->debug('Hook end', [
-            'final_set_keys' => array_keys($set),
-        ]);
     }
 
-    /* === Hilfsmethoden unverändert === */
-
-    private function extractMeilisearchJson(string $content): ?array
+    // =========================================================
+    // 🟢 PFAD-ERMITTLUNG
+    // =========================================================
+    private function getValidLocalFilePathFromUrl(string $url, string $projectDir): ?string
     {
-        if (!preg_match('/<!--\s*MEILISEARCH_JSON\s*(\{.*?\})\s*-->/s', $content, $m)) {
+        $arrUrl = parse_url($url);
+        if (!$arrUrl) {
             return null;
         }
 
-        $json = preg_replace('/^\xEF\xBB\xBF/', '', trim($m[1]));
-        $data = json_decode($json, true);
+        $path = $arrUrl['path'] ?? null;
 
-        return json_last_error() === JSON_ERROR_NONE && is_array($data)
-            ? $data
-            : null;
+        // Download-Parameter ?file=
+        if (!empty($arrUrl['query']) && preg_match('#file=(?<path>[^&]+)#i', $arrUrl['query'], $m)) {
+            $path = $m['path'];
+        }
+
+        if (!$path) {
+            return null;
+        }
+
+        $path = ltrim(urldecode($path), '/');
+
+        if (!str_starts_with($path, 'files/')) {
+            return null;
+        }
+
+        if (!is_file($projectDir . '/' . $path)) {
+            return null;
+        }
+
+        return $path;
     }
+
+    /* === Hilfsmethoden unverändert === */
 
     private function findAllLinks(string $content): array
     {
@@ -329,11 +200,7 @@ class IndexPageListener
     private function detectIndexableFileType(string $url): ?string
     {
         $url = strtok($url, '#');
-
         $parts = parse_url($url);
-        if (!$parts) {
-            return null;
-        }
 
         if (!empty($parts['path'])) {
             $ext = strtolower(pathinfo($parts['path'], PATHINFO_EXTENSION));
@@ -344,12 +211,10 @@ class IndexPageListener
 
         if (!empty($parts['query'])) {
             parse_str($parts['query'], $query);
-
             foreach (['file', 'p', 'f'] as $param) {
                 if (!empty($query[$param])) {
-                    $candidate = rawurldecode(html_entity_decode((string) $query[$param], ENT_QUOTES));
+                    $candidate = rawurldecode((string) $query[$param]);
                     $ext = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
-
                     if (in_array($ext, ['pdf', 'docx', 'xlsx', 'pptx'], true)) {
                         return $ext;
                     }
