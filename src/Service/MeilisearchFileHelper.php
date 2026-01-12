@@ -130,9 +130,16 @@ class MeilisearchFileHelper
             return;
         }
 
+        // ✅ HIER ist $fileModel garantiert vorhanden
+        $meta = StringUtil::deserialize($fileModel->meta, true);
+
+        $this->log('tl_files.meta raw', [
+            'meta' => $meta,
+        ]);
+
         $normalizedPath = (string) $fileModel->path;
         $uuidBin        = $fileModel->uuid;
-        $uuid           = StringUtil::binToUuid($uuidBin);
+        $uuid            = StringUtil::binToUuid($uuidBin);
 
         $this->log('UUID resolved', [
             'path' => $normalizedPath,
