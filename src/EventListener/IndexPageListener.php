@@ -184,97 +184,51 @@ class IndexPageListener
             $db   = System::getContainer()->get('database_connection');
             $time = time();
 
+            // ✅ Contao 5.x robust: Projektverzeichnis statt TL_ROOT
             $projectDir = System::getContainer()->getParameter('kernel.project_dir');
 
             foreach ($fileLinks as $file) {
                 try {
-                    // -------------------------------------------------
-                    // URL normalisieren (Fragment weg)
-                    // -------------------------------------------------
                     $url = strtok($file['url'], '#');
-                    $parts = parse_url($url);
 
-                    // -------------------------------------------------
-                    // ⬅️ NEU: externe Links überspringen
-                    // -------------------------------------------------
-                    if (!empty($parts['host'])) {
-                        // absolute URL → nur erlauben, wenn eigener Host
-                        $currentHost = parse_url(System::getContainer()->get('request_stack')->getCurrentRequest()?->getSchemeAndHttpHost() ?? '', PHP_URL_HOST);
-                        if ($currentHost && $parts['host'] !== $currentHost) {
-                            continue;
-                        }
-                    }
+                    $path = parse_url($url, PHP_URL_PATH);
+                    $path = $path ? ltrim($path, '/') : null;
 
-                    // -------------------------------------------------
-                    // ⬅️ NEU: lokalen Dateipfad ermitteln
-                    // -------------------------------------------------
-                    $normalizedPath = null;
-
-                    // 1) direkter Pfad /files/…
-                    if (!empty($parts['path'])) {
-                        $candidate = ltrim(urldecode($parts['path']), '/');
-                        if (str_starts_with($candidate, 'files/')) {
-                            $normalizedPath = $candidate;
-                        }
-                    }
-
-                    // 2) Download-Parameter ?file= / ?p= / ?f=
-                    if (!$normalizedPath && !empty($parts['query'])) {
-                        parse_str($parts['query'], $query);
-                        foreach (['file', 'p', 'f'] as $param) {
-                            if (!empty($query[$param])) {
-                                $candidate = ltrim(urldecode(html_entity_decode((string) $query[$param], ENT_QUOTES)), '/');
-                                if (str_starts_with($candidate, 'files/')) {
-                                    $normalizedPath = $candidate;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    // -------------------------------------------------
-                    // ⬅️ NEU: wenn keine lokale Datei → skip
-                    // -------------------------------------------------
-                    if (!$normalizedPath || !is_file($projectDir . '/public/' . $normalizedPath)) {
-                        continue;
-                    }
-
-                    // -------------------------------------------------
-                    // UUID aus normalisiertem Pfad
-                    // -------------------------------------------------
+                    // ---------------------------------------------
+                    // UUID aus Pfad ermitteln (Contao 4.13 + 5.x)
+                    // ---------------------------------------------
                     $uuid    = null;
                     $uuidBin = null;
 
-                    if (interface_exists(VirtualFilesystemInterface::class)) {
-                        try {
-                            $vfs  = System::getContainer()->get(VirtualFilesystemInterface::class);
-                            $uuid = $vfs->pathToUuid($normalizedPath);
-                        } catch (\Throwable) {
-                            $uuid = null;
+                    if ($path && str_starts_with($path, 'files/')) {
+                        if (interface_exists(VirtualFilesystemInterface::class)) {
+                            try {
+                                $vfs  = System::getContainer()->get(VirtualFilesystemInterface::class);
+                                $uuid = $vfs->pathToUuid($path);
+                            } catch (\Throwable) {
+                                $uuid = null;
+                            }
+                        }
+
+                        if (!$uuid) {
+                            $fileModel = FilesModel::findByPath($path);
+                            if ($fileModel) {
+                                $uuid = $fileModel->uuid;
+                            }
+                        }
+
+                        if ($uuid) {
+                            $uuidBin = StringUtil::uuidToBin($uuid);
                         }
                     }
 
-                    if (!$uuid) {
-                        $fileModel = FilesModel::findByPath($normalizedPath);
-                        if ($fileModel) {
-                            $uuid = $fileModel->uuid;
-                        }
-                    }
+                    $abs = $path ? $projectDir . '/public/' . $path : null;
 
-                    if ($uuid) {
-                        $uuidBin = StringUtil::uuidToBin($uuid);
-                    }
-
-                    // -------------------------------------------------
-                    // bestehende Logik (unverändert)
-                    // -------------------------------------------------
-                    $abs = $projectDir . '/public/' . $normalizedPath;
-
-                    $mtime    = is_file($abs) ? filemtime($abs) : 0;
+                    $mtime    = ($abs && is_file($abs)) ? filemtime($abs) : 0;
                     $checksum = md5($url . '|' . $mtime);
 
                     $existing = $db->fetchAssociative(
-                        'SELECT id FROM tl_search_files WHERE url = ?',
+                        'SELECT id, checksum FROM tl_search_files WHERE url = ?',
                         [$url]
                     );
 
@@ -287,10 +241,15 @@ class IndexPageListener
                                 'page_id'    => (int) ($data['pid'] ?? 0),
                                 'file_mtime' => $mtime,
                                 'checksum'   => $checksum,
-                                'uuid'       => $uuidBin,
+                                'uuid'       => $uuidBin, // ⬅️ NEU
                             ],
                             ['id' => $existing['id']]
                         );
+
+                        $this->debug('File updated', [
+                            'url'  => $url,
+                            'uuid' => $uuid,
+                        ]);
                     } else {
                         $db->insert(
                             'tl_search_files',
@@ -303,13 +262,19 @@ class IndexPageListener
                                 'page_id'    => (int) ($data['pid'] ?? 0),
                                 'file_mtime' => $mtime,
                                 'checksum'   => $checksum,
-                                'uuid'       => $uuidBin,
+                                'uuid'       => $uuidBin, // ⬅️ NEU
                             ]
                         );
+
+                        $this->debug('File inserted', [
+                            'url'  => $url,
+                            'uuid' => $uuid,
+                        ]);
                     }
                 } catch (\Throwable $e) {
                     $this->debug('File upsert FAILED', [
                         'url'   => $file['url'] ?? null,
+                        'type'  => $file['type'] ?? null,
                         'error' => $e->getMessage(),
                         'class' => $e::class,
                         'code'  => $e->getCode(),
@@ -317,7 +282,6 @@ class IndexPageListener
                 }
             }
         }
-
 
         $this->debug('Hook end', [
             'final_set_keys' => array_keys($set),
