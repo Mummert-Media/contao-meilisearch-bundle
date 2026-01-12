@@ -4,6 +4,7 @@ namespace MummertMedia\ContaoMeilisearchBundle\Command;
 
 use Contao\CoreBundle\Framework\ContaoFramework;
 use Contao\Database;
+use Contao\System;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
