@@ -105,7 +105,7 @@ class MeilisearchFilesParseCommand extends Command
 
             $root = defined('TL_ROOT')
                 ? TL_ROOT
-                : $this->framework->getContainer()->getParameter('kernel.project_dir') . '/public';
+                : System::getContainer()->getParameter('kernel.project_dir') . '/public';
 
             $absolutePath = $root . '/' . $normalized;
 
