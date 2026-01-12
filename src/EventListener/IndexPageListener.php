@@ -8,8 +8,9 @@ use MummertMedia\ContaoMeilisearchBundle\Service\MeilisearchFileHelper;
 
 class IndexPageListener
 {
-    public function __construct()
-    {
+    public function __construct(
+        private readonly MeilisearchFileHelper $fileHelper,
+    ) {
     }
 
     private function debug(string $message, array $context = []): void
@@ -138,19 +139,8 @@ class IndexPageListener
         ]);
 
         if ($fileLinks) {
-            try {
-                /** @var MeilisearchFileHelper $fileHelper */
-                $fileHelper = System::getContainer()->get(MeilisearchFileHelper::class);
-            } catch (\Throwable $e) {
-                $this->debug('MeilisearchFileHelper NOT available', [
-                    'error' => $e->getMessage(),
-                    'class' => $e::class,
-                ]);
-                return;
-            }
-
             foreach ($fileLinks as $file) {
-                $fileHelper->collect(
+                $this->fileHelper->collect(
                     $file['url'],
                     $file['type'],
                     (int) ($data['pid'] ?? 0)
