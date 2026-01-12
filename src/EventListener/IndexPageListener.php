@@ -4,6 +4,9 @@ namespace MummertMedia\ContaoMeilisearchBundle\EventListener;
 
 use Contao\Config;
 use Contao\System;
+use Contao\FilesModel;
+use Contao\StringUtil;
+use Contao\CoreBundle\Filesystem\VirtualFilesystemInterface;
 
 class IndexPageListener
 {
@@ -186,10 +189,40 @@ class IndexPageListener
 
             foreach ($fileLinks as $file) {
                 try {
-                    $url  = strtok($file['url'], '#');
+                    $url = strtok($file['url'], '#');
 
                     $path = parse_url($url, PHP_URL_PATH);
-                    $abs  = $path ? $projectDir . '/public/' . ltrim($path, '/') : null;
+                    $path = $path ? ltrim($path, '/') : null;
+
+                    // ---------------------------------------------
+                    // UUID aus Pfad ermitteln (Contao 4.13 + 5.x)
+                    // ---------------------------------------------
+                    $uuid    = null;
+                    $uuidBin = null;
+
+                    if ($path && str_starts_with($path, 'files/')) {
+                        if (interface_exists(VirtualFilesystemInterface::class)) {
+                            try {
+                                $vfs  = System::getContainer()->get(VirtualFilesystemInterface::class);
+                                $uuid = $vfs->pathToUuid($path);
+                            } catch (\Throwable) {
+                                $uuid = null;
+                            }
+                        }
+
+                        if (!$uuid) {
+                            $fileModel = FilesModel::findByPath($path);
+                            if ($fileModel) {
+                                $uuid = $fileModel->uuid;
+                            }
+                        }
+
+                        if ($uuid) {
+                            $uuidBin = StringUtil::uuidToBin($uuid);
+                        }
+                    }
+
+                    $abs = $path ? $projectDir . '/public/' . $path : null;
 
                     $mtime    = ($abs && is_file($abs)) ? filemtime($abs) : 0;
                     $checksum = md5($url . '|' . $mtime);
@@ -208,11 +241,15 @@ class IndexPageListener
                                 'page_id'    => (int) ($data['pid'] ?? 0),
                                 'file_mtime' => $mtime,
                                 'checksum'   => $checksum,
+                                'uuid'       => $uuidBin, // ⬅️ NEU
                             ],
                             ['id' => $existing['id']]
                         );
 
-                        $this->debug('File updated', ['url' => $url, 'checksum' => $checksum]);
+                        $this->debug('File updated', [
+                            'url'  => $url,
+                            'uuid' => $uuid,
+                        ]);
                     } else {
                         $db->insert(
                             'tl_search_files',
@@ -225,19 +262,22 @@ class IndexPageListener
                                 'page_id'    => (int) ($data['pid'] ?? 0),
                                 'file_mtime' => $mtime,
                                 'checksum'   => $checksum,
+                                'uuid'       => $uuidBin, // ⬅️ NEU
                             ]
                         );
 
-                        $this->debug('File inserted', ['url' => $url, 'checksum' => $checksum]);
+                        $this->debug('File inserted', [
+                            'url'  => $url,
+                            'uuid' => $uuid,
+                        ]);
                     }
                 } catch (\Throwable $e) {
                     $this->debug('File upsert FAILED', [
-                        'url'    => $file['url'] ?? null,
-                        'type'   => $file['type'] ?? null,
-                        'error'  => $e->getMessage(),
-                        'class'  => $e::class,
-                        // falls DBAL-Exception: SQLSTATE/Code helfen brutal beim Finden
-                        'code'   => $e->getCode(),
+                        'url'   => $file['url'] ?? null,
+                        'type'  => $file['type'] ?? null,
+                        'error' => $e->getMessage(),
+                        'class' => $e::class,
+                        'code'  => $e->getCode(),
                     ]);
                 }
             }
