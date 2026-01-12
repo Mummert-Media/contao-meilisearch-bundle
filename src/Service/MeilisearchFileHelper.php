@@ -132,10 +132,11 @@ class MeilisearchFileHelper
 
         $normalizedPath = (string) $fileModel->path;
         $uuidBin        = $fileModel->uuid;
-        $uuid            = StringUtil::binToUuid($uuidBin);
+        $uuid           = StringUtil::binToUuid($uuidBin);
+        $canonicalUrl   = '/' . ltrim($normalizedPath, '/');
 
         $this->log('UUID resolved', [
-            'path' => $normalizedPath,
+            'path' => $canonicalUrl,
             'uuid' => $uuid,
         ]);
 
@@ -201,7 +202,7 @@ class MeilisearchFileHelper
                 'tstamp'     => $now,
                 'last_seen'  => $now,
                 'type'       => $type,
-                'url'        => $cleanUrl,
+                'url'        => $canonicalUrl,
                 'page_id'    => $pageId,
                 'file_mtime' => $mtime,
                 'checksum'   => $checksum,
@@ -227,7 +228,7 @@ class MeilisearchFileHelper
                     'tstamp'     => $now,
                     'last_seen'  => $now,
                     'type'       => $type,
-                    'url'        => $cleanUrl,
+                    'url'        => $canonicalUrl,
                     'title'      => $title ?? basename($normalizedPath),
                     'page_id'    => $pageId,
                     'file_mtime' => $mtime,
