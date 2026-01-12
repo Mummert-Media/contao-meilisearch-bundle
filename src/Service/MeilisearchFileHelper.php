@@ -52,9 +52,9 @@ class MeilisearchFileHelper
             }
         }
 
-        // -------------------------------------------------
-        // 3. Normalisierten lokalen Pfad ermitteln
-        // -------------------------------------------------
+// -------------------------------------------------
+// 3. Normalisierten lokalen Pfad ermitteln (UUID-first)
+// -------------------------------------------------
         $query = [];
         if (!empty($parts['query'])) {
             parse_str($parts['query'], $query);
@@ -62,39 +62,78 @@ class MeilisearchFileHelper
 
         $pathCandidates = [];
 
-        // direkter Pfad
+// direkter Pfad
         if (!empty($parts['path'])) {
             $pathCandidates[] = $parts['path'];
         }
 
-        // Download-Parameter
+// Download-Parameter
         foreach (['file', 'f', 'p'] as $param) {
             if (!empty($query[$param])) {
                 $pathCandidates[] = $query[$param];
             }
         }
 
-        $normalizedPath = null;
+        $pathCandidates = array_values(array_unique(array_filter(array_map(
+            static function ($c) {
+                $c = rawurldecode(html_entity_decode((string) $c, ENT_QUOTES));
+                $c = ltrim($c, '/');
+                return $c !== '' ? $c : null;
+            },
+            $pathCandidates
+        ))));
 
+        $this->log('Path candidates (normalized)', ['candidates' => $pathCandidates]);
+
+        $resolvedModel = null;
+
+// Wir testen Kandidaten in dieser Reihenfolge:
+// - kandidat selbst
+// - falls nicht mit "files/" beginnt: zusätzlich "files/".$kandidat
         foreach ($pathCandidates as $candidate) {
-            $candidate = rawurldecode(html_entity_decode((string) $candidate, ENT_QUOTES));
-            $candidate = ltrim($candidate, '/');
 
-            if (!str_starts_with($candidate, 'files/')) {
-                continue;
+            // 1) direkt versuchen
+            $model = FilesModel::findByPath($candidate);
+            if ($model && $model->uuid) {
+                $resolvedModel = $model;
+                $this->log('Resolved via FilesModel (direct)', ['candidate' => $candidate, 'path' => $model->path]);
+                break;
             }
 
-            $abs = System::getContainer()->getParameter('kernel.project_dir') . '/public/' . $candidate;
-
-            if (is_file($abs)) {
-                $normalizedPath = $candidate;
-                break;
+            // 2) fallback: "files/" davor (ohne Annahme über Ordnerstruktur)
+            if (!str_starts_with($candidate, 'files/')) {
+                $model = FilesModel::findByPath('files/' . $candidate);
+                if ($model && $model->uuid) {
+                    $resolvedModel = $model;
+                    $this->log('Resolved via FilesModel (files/ prefix)', [
+                        'candidate' => $candidate,
+                        'path'      => $model->path,
+                    ]);
+                    break;
+                }
             }
         }
 
-        if (!$normalizedPath) {
-            $this->log('No valid local file path found, skip', [
-                'candidates' => $pathCandidates,
+        if (!$resolvedModel) {
+            $this->log('No Contao file model found for candidates, skip', ['candidates' => $pathCandidates]);
+            return;
+        }
+
+        $normalizedPath = (string) $resolvedModel->path;
+        $uuidBin        = $resolvedModel->uuid;
+
+        $this->log('UUID resolved', [
+            'path' => $normalizedPath,
+            'uuid' => StringUtil::binToUuid($uuidBin),
+        ]);
+
+        $projectDir = System::getContainer()->getParameter('kernel.project_dir');
+        $abs = $projectDir . '/public/' . $normalizedPath;
+
+        if (!is_file($abs)) {
+            $this->log('Resolved model but file missing on FS, skip', [
+                'path' => $normalizedPath,
+                'abs'  => $abs,
             ]);
             return;
         }
