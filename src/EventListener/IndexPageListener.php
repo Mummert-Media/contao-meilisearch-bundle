@@ -138,8 +138,16 @@ class IndexPageListener
         ]);
 
         if ($fileLinks) {
-            /** @var MeilisearchFileHelper $fileHelper */
-            $fileHelper = System::getContainer()->get(MeilisearchFileHelper::class);
+            try {
+                /** @var MeilisearchFileHelper $fileHelper */
+                $fileHelper = System::getContainer()->get(MeilisearchFileHelper::class);
+            } catch (\Throwable $e) {
+                $this->debug('MeilisearchFileHelper NOT available', [
+                    'error' => $e->getMessage(),
+                    'class' => $e::class,
+                ]);
+                return;
+            }
 
             foreach ($fileLinks as $file) {
                 $fileHelper->collect(
