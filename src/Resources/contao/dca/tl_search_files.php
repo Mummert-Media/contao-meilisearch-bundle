@@ -12,7 +12,8 @@ $GLOBALS['TL_DCA']['tl_search_files'] = [
                 'url'       => 'unique',
                 'type'      => 'index',
                 'checksum'  => 'index',
-                'last_seen' => 'index', // ⬅️ NEU (für Cleanup-Performance)
+                'uuid'      => 'index',
+                'last_seen' => 'index',
             ],
         ],
     ],
@@ -61,6 +62,10 @@ $GLOBALS['TL_DCA']['tl_search_files'] = [
          */
         'text' => [
             'sql' => "mediumtext NULL",
+        ],
+
+        'uuid' => [
+            'sql' => "binary(16) NULL",
         ],
 
         /*
