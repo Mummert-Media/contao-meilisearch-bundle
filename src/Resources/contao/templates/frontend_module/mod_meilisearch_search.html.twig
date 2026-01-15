@@ -96,6 +96,10 @@ Contao 5 – Frontend Module Template
             input.value = '';
             results.innerHTML = '';
             clear.classList.add('is-hidden');
+
+            // ✅ WICHTIG: Suchmodus verlassen
+            document.body.classList.remove('search-active');
+
             input.focus();
         });
 
